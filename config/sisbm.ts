@@ -43,7 +43,9 @@ const sisbmConfig = {
     commandTtlMinutes: env.get('IMMOBILIZATION_COMMAND_TTL_MINUTES', 15),
     /** Une position plus ancienne ne prouve plus que le véhicule est à l'arrêt. */
     //supprimer dans les use_cases
+    //à supprimer dans les singletons
     maxPositionAgeSeconds: env.get('IMMOBILIZATION_MAX_POSITION_AGE_SECONDS', 120),
+    //maxPositionAgeSeconds: env.get('IMMOBILIZATION_MAX_POSITION_AGE_SECONDS'),
   },
 
   /**
@@ -59,7 +61,13 @@ const sisbmConfig = {
     timeoutMs: env.get('FLESPI_TIMEOUT_MS', 10000),
     /** Canal micodus de la flotte (ex. 1442013). 0 = non configuré. */
     channelId: env.get('FLESPI_CHANNEL_ID', 0),
+    /*
+    Ajouter un nouveau protocole à la configuration
+    */
     protocolName: env.get('FLESPI_PROTOCOL_NAME', 'micodus'),
+    /*
+    Ajouter un nouveau type de device
+    */
     deviceType: env.get('FLESPI_DEVICE_TYPE', env.get('FLESPI_DEVICE_TYPE_ID', 'Micodus MV730')),
     /** Rétention des messages dans le device flespi, en secondes (défaut flespi : 1 an). */
     deviceMessagesTtl: env.get('FLESPI_DEVICE_MESSAGES_TTL', 31536000),
@@ -96,13 +104,13 @@ const sisbmConfig = {
    * soit rejouée : au-delà, elle ne prouve plus rien.
    */
   mqtt: {
-    host: env.get('MQTT_HOST', '127.0.0.1'),
+    host: env.get('MQTT_HOST', '127.0.0.1'), //host en prod ubuntu
     port: env.get('MQTT_PORT', 1883),
     tls: env.get('MQTT_TLS', false),
     clientId: env.get('MQTT_CLIENT_ID', 'sisbm-ingest'),
     username: env.get('MQTT_USERNAME', ''),
     password: env.get('MQTT_PASSWORD', ''),
-    topics: [env.get('MQTT_TOPIC_TELEMETRY', 'sisbm/telemetry/+/data')],
+    topics: [env.get('MQTT_TOPIC_TELEMETRY', 'sisbm/telemetry/+/data')], //data
     qos: 1 as const,
     messageExpirySeconds: env.get('MQTT_MESSAGE_EXPIRY_SECONDS', 300),
     reconnectPeriodMs: env.get('MQTT_RECONNECT_PERIOD_MS', 2000),
@@ -113,9 +121,9 @@ const sisbmConfig = {
 
   /** Rétention — à confirmer avec le responsable conformité (ARTCI). */
   retention: {
-    positionsMonths: env.get('RETENTION_POSITIONS_MONTHS', 24),
-    ingestMessagesMonths: env.get('RETENTION_INGEST_MESSAGES_MONTHS', 1),
-    reportsDays: env.get('RETENTION_REPORTS_DAYS', 7),
+    positionsMonths: env.get('RETENTION_POSITIONS_MONTHS', 24), //à definir sur 6mois
+    ingestMessagesMonths: env.get('RETENTION_INGEST_MESSAGES_MONTHS', 1), //optimiser pour ne pas surcharger la base
+    reportsDays: env.get('RETENTION_REPORTS_DAYS', 7), //ok
   },
 }
 

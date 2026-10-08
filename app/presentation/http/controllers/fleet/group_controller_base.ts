@@ -38,6 +38,9 @@ export interface GroupControllerConfig {
   /** `vehicle_group` | `device_group` — type de ressource dans l'audit. */
   resourceType: string
   /** `vehicle` | `device` — type de ressource des membres dans l'audit. */
+  /*
+  Ajouter driver plus tard au groupe
+  */
   memberResourceType: string
   /** Clé JSON de la liste des membres dans le corps de requête. */
   memberPayloadKey: 'vehicleIds' | 'deviceIds'
@@ -372,6 +375,11 @@ export abstract class GroupControllerBase {
     return (await query.first()) as GroupRow | null
   }
 
+  /*
+  Fonction primitive gérant la résolution de la liste des membres 
+  d'une organisation ou de devices 
+  NB : ajouter driver .
+  */
   private async lireMembres(ctx: HttpContext): Promise<string[]> {
     if (this.cfg.memberPayloadKey === 'vehicleIds') {
       const payload = await ctx.request.validateUsing(assignVehiclesValidator)
@@ -381,6 +389,9 @@ export abstract class GroupControllerBase {
     return payload.deviceIds
   }
 
+  /*
+  Fonction primitive gérant les enregistrements pour un audit
+  */
   private tracer(
     ctx: HttpContext,
     organizationId: string,
@@ -406,6 +417,9 @@ export abstract class GroupControllerBase {
    * pré-vérifie tout de même : « nom déjà utilisé » est actionnable,
    * « contrainte d'intégrité violée » ne l'est pas.
    */
+  /*
+  Fonction primitive gérant les noms déjà pris 
+  */
   private async nomPris(organizationId: string, name: string, exceptId?: string): Promise<boolean> {
     const query = this.cfg.model
       .query()

@@ -15,8 +15,7 @@ import type {
  *
  * Corrections par rapport à la version précédente (vérifiées sur l'API) :
  *
- *  ✗ AVANT  POST /gw/devices  { channel_id, ident, device_type_id: "Micodus MV730" }
- *  ✓ APRÈS  POST /gw/devices  [ { name, device_type_id: <number>,
+ *  ✓   POST /gw/devices  [ { name, device_type_id: <number>,
  *                                 configuration: { ident, phone?, settings_polling? } } ]
  *
  *    - le corps est un TABLEAU ;
@@ -25,11 +24,11 @@ import type {
  *      FlespiProtocolGateway) ;
  *    - il n'existe PAS de `channel_id` sur un device : le rattachement se fait
  *      par le protocole du type + l'ident.
- *
- *  ✗ AVANT  GET /messages?limit=1&reverse=true   (paramètres ignorés par flespi)
+
  *  ✓ APRÈS  GET /messages?data={"count":1,"reverse":true}
  */
 
+//creaton d'un device chez flespi
 export interface CreateDeviceInput {
   name: string
   deviceTypeId: number
@@ -41,6 +40,7 @@ export interface CreateDeviceInput {
   enabled?: boolean
 }
 
+//modification d'un device chez flespi
 export interface UpdateDeviceInput {
   name?: string
   enabled?: boolean
@@ -50,6 +50,7 @@ export interface UpdateDeviceInput {
   messagesTtl?: number
 }
 
+//messages d'un device
 export interface DeviceMessagesQuery {
   /** Horodatages en SECONDES. */
   from?: number
@@ -60,6 +61,7 @@ export interface DeviceMessagesQuery {
   filter?: string
 }
 
+//valeur télémetrique d'un device
 export interface TelemetryValue {
   value: unknown
   ts: number
@@ -68,6 +70,7 @@ export interface TelemetryValue {
 export class FlespiDeviceGateway {
   constructor(private readonly client: FlespiClient) {}
 
+  //methode de creation d'un device
   async create(input: CreateDeviceInput): Promise<FlespiDevice> {
     const configuration: Record<string, unknown> = { ident: input.ident }
     if (input.phone) configuration.phone = input.phone
@@ -95,10 +98,12 @@ export class FlespiDeviceGateway {
     return device
   }
 
+  //methode permettant de retrouver une ressource flespi(boitier)
   async get(flespiDeviceId: number, fields?: string[]): Promise<FlespiDevice | null> {
     return this.client.item<FlespiDevice>(`/gw/devices/${flespiDeviceId}`, { fields })
   }
 
+  //fonction permettant de lister toutes les devices flespi (avec options pour filtrage (data))
   async list(opts: { limit?: number; offset?: number } = {}): Promise<FlespiDevice[]> {
     const env = await this.client.request<FlespiDevice>('GET', '/gw/devices/all', {
       limit: opts.limit,
@@ -202,6 +207,7 @@ export class FlespiDeviceGateway {
   }
 
   /** Dernière valeur connue de chaque paramètre (position, batterie, ignition…). */
+  //dernière valeur connue pour chaque device
   async telemetry(flespiDeviceId: number): Promise<Record<string, TelemetryValue>> {
     const r = await this.client.first<{ id: number; telemetry: Record<string, TelemetryValue> }>(
       'GET',
@@ -211,6 +217,10 @@ export class FlespiDeviceGateway {
   }
 
   /** Catalogue des commandes EXACT de ce boîtier, tel que flespi le connaît. */
+  /*
+  retrouver les commmandes d'un device (destructuration de l'object pour cibler uniqument les commandes)
+  conforme à l'api
+  */
   async commandsCatalog(flespiDeviceId: number): Promise<FlespiCommandDefinition[]> {
     const d = await this.get(flespiDeviceId, ['commands'])
     return d?.commands ?? []

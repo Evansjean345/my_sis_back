@@ -1,5 +1,5 @@
 import type { DomainError, DomainEvent, Result, TransactionScope } from '#domain/kernel'
-
+//porté d'une transaction
 export type { TransactionScope } from '#domain/kernel'
 
 /**
@@ -21,12 +21,13 @@ export type { TransactionScope } from '#domain/kernel'
  * Un cas d'usage = une intention métier = une transaction.
  * Pas de `getVehicleAndAlsoUpdateItAndSendMail` : une intention, un objet.
  */
-
+//cas d'usage entré /sortie / erreur d'une transaction
 export interface UseCase<TInput, TOutput, TError extends DomainError = DomainError> {
   execute(input: TInput): Promise<Result<TOutput, TError>>
 }
 
 /** Contexte d'exécution : qui agit, pour quelle organisation, depuis où. */
+//contexte d'eecution d'une organisation /user/type-sytem ou autre/ip /userAgent(navigateur)/id de la requete
 export interface ExecutionContext {
   readonly actorId: string | null
   readonly actorType: 'user' | 'system' | 'policy' | 'api'
@@ -39,6 +40,7 @@ export interface ExecutionContext {
 // ---------------------------------------------------------------------------
 // Unit of Work
 // ---------------------------------------------------------------------------
+//lecture envoyée/lectture/repeté/formatage
 export type IsolationLevel = 'read committed' | 'repeatable read' | 'serializable'
 
 /**
@@ -68,10 +70,12 @@ export interface UnitOfWork {
  * Sans ce port, toute règle temporelle (expiration d'une commande, fenêtre
  * horaire, cooldown d'une politique) devient intestable sans attendre.
  */
+//gestion de l'heure
 export interface Clock {
   now(): Date
 }
 
+//gestion de la date
 export interface IdGenerator {
   generate(): string
 }
@@ -82,6 +86,7 @@ export interface EventPublisher {
 }
 
 /** Journalisation d'audit (TDR §II.5 « journalisation complète »). */
+//gestion technique des audits
 export interface AuditLogger {
   record(entry: {
     context: ExecutionContext
@@ -100,6 +105,7 @@ export interface AuditLogger {
  * Déclaré en couche application pour que la présentation n'ait jamais à
  * toucher la base : l'implémentation Lucid vit dans `infrastructure/`.
  */
+//lecture des permissions d'un user
 export interface PermissionReader {
   readPermissions(roleId: string): Promise<string[]>
 }

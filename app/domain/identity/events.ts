@@ -10,12 +10,13 @@ import { BaseDomainEvent } from '#domain/kernel'
  *
  * Aucune donnée secrète dans la charge utile : ni mot de passe, ni empreinte.
  */
+//1 - organisation  crée (entreprise crée)
 export class OrganizationCreated extends BaseDomainEvent {
   constructor(organizationId: string, payload: { code: string; name: string }) {
     super('identity.organization.created', organizationId, payload)
   }
 }
-
+//2- - Utilisateur crée
 export class UserAccountCreated extends BaseDomainEvent {
   constructor(
     userId: string,

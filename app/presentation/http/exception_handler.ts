@@ -29,6 +29,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
   protected debug = !app.inProduction
 
   async handle(error: unknown, ctx: HttpContext) {
+    //objet instancié pour traiter les erreurs liées aux identitées du domaine
     if (error instanceof DomainError)
       return ctx.response.status(error.httpStatus).send({ error: error.toJSON() })
 
@@ -36,6 +37,9 @@ export default class HttpExceptionHandler extends ExceptionHandler {
      * Erreur renvoyée par flespi : on relaie le MOTIF flespi (« device not
      * connected », « ident already exists »…), qui est directement actionnable.
      */
+    /*objet intancié pour traiter les erreurs liées à Flespi --- 
+    un code d'erreur de 0 est mauvaise configuration de flespi
+    */
     if (error instanceof FlespiApiError) {
       return ctx.response.status(error.httpStatusForClient).send({
         error: {
@@ -46,18 +50,27 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       })
     }
 
+    /*
+    Erreur lié aux appels flespi
+    */
     if (error instanceof ProvisioningError) {
       return ctx.response.status(error.httpStatus).send({
         error: { code: error.code, message: error.message, details: error.details },
       })
     }
 
+    /*
+     Erreurs liées aux identifiants des ressources flespi
+     */
     if (error instanceof FlespiIdentError) {
       return ctx.response.status(422).send({
         error: { code: 'E_FLESPI_IDENT', message: error.message, details: { hint: error.hint } },
       })
     }
 
+    /*
+    Erreur liées aux invalidations des données transmises
+    */
     if (error instanceof vineErrors.E_VALIDATION_ERROR) {
       return ctx.response.status(422).send({
         error: {
@@ -68,6 +81,9 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       })
     }
 
+    /*
+    Erreur lié à l'authentification
+    */
     if (error instanceof authErrors.E_UNAUTHORIZED_ACCESS) {
       return ctx.response.status(401).send({
         error: { code: 'E_UNAUTHORIZED', message: 'Authentification requise', details: {} },
@@ -82,6 +98,9 @@ export default class HttpExceptionHandler extends ExceptionHandler {
      * mécanisme qui fonctionne. Le client doit rejouer sa requête.
      */
 
+    /*
+    Erreur traitant deux requetes concurrentes
+    */
     if (this.isSerializationFailure(error)) {
       ctx.response.header('Retry-After', '1')
       return ctx.response.status(409).send({
@@ -139,6 +158,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
     return super.report(error, ctx)
   }
 
+  /* Erreur de formatage des données */
   private isSerializationFailure(error: unknown): boolean {
     return (
       typeof error === 'object' &&
@@ -148,15 +168,24 @@ export default class HttpExceptionHandler extends ExceptionHandler {
     )
   }
 
+  /*
+    Erreur de violation de clé etrangère SQL 
+    */
   private isForeignKeyViolation(error: unknown): boolean {
     return this.sqlState(error) === '23503'
   }
 
+  /*
+  Erreur de violation de contrainte d'unicité
+  */
   private isConstraintViolation(error: unknown): boolean {
     // 23505 unique · 23514 check · 23P01 exclusion (23503 traité à part)
     return ['23505', '23514', '23P01'].includes(this.sqlState(error) ?? '')
   }
 
+  /*
+  Erreur de standaristion des données
+  */
   private sqlState(error: unknown): string | null {
     if (typeof error !== 'object' || error === null || !('code' in error)) return null
     return (error as { code: string }).code

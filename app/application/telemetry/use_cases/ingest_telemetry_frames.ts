@@ -1,9 +1,15 @@
 import { Ok, type DomainError, type Result } from '#domain/kernel'
+//mesures GPS/cap/vitesse/coordonnées longitude et latitude
 import { Coordinates, GpsQuality, Heading, Speed } from '#domain/measures'
+//lecture de la télemtrie comme enntité du domaine avec toutes les propreiétes de celle ci
 import { TelemetryReading } from '#domain/telemetry/entities/telemetry_reading'
+//lecture des trajets comme entité avec retour en temps réel de l'objet snaphot comme l'etat présent de celui ci
 import { Trip } from '#domain/telemetry/entities/trip'
+//objets et valeurs des principaux acteurs de la télémetrie device/deviceIdent de flespi/trajet et vehicule
 import { DeviceId, DeviceIdent, TripId, VehicleId } from '#domain/telemetry/value_objects'
+//seuil de qualité pour telemetrie
 import type { QualityThresholds } from '#domain/telemetry/services/quality_filter'
+//lecture des événements de la telemetrie grace au pattern repositiory
 import type {
   IngestMessageRepository,
   PositionRepository,
@@ -11,18 +17,24 @@ import type {
   VehicleLastPositionRepository,
 } from '#domain/telemetry/repositories/telemetry_repositories'
 import { UnknownDeviceError } from '#domain/telemetry/errors'
+//événements liés à la télémetrie
 import { IgnitionTurnedOff, IgnitionTurnedOn, PositionRecorded } from '#domain/telemetry/events'
-import type { Clock, IdGenerator, UnitOfWork, UseCase } from '#application/ports'
+//ports applicatifs pour le cas d'uasge du contexte de la télémetrie
+import type { Clock, IdGenerator, TransactionScope, UnitOfWork, UseCase } from '#application/ports'
+//ports applicatifs liés au contexte de la télémetrie
 import type {
   DeviceResolver,
   RealtimeBroadcaster,
   TelemetryFrame,
 } from '#application/telemetry/ports'
+//NB : ligne 329 à verifier avant la publication pour transactionScope
 
+//interface d'entrée
 export interface IngestTelemetryInput {
   frames: TelemetryFrame[]
 }
 
+//interface de sortie
 export interface IngestTelemetryOutput {
   received: number
   persisted: number
@@ -48,6 +60,7 @@ export interface IngestTelemetryOutput {
   rejectedReasons: Record<string, number>
 }
 
+//interface pour le seuil de qualité lié au service de la telemetrie
 export interface IngestSettings extends QualityThresholds {
   backlogThresholdSeconds: number
   tripIdleTimeoutSeconds: number
@@ -87,7 +100,9 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     private readonly settings: IngestSettings
   ) {}
 
+  //implementation du pattern unitOFWork pour ce use_case
   async execute(input: IngestTelemetryInput): Promise<Result<IngestTelemetryOutput, DomainError>> {
+    //valeur initial à 0
     const now = this.clock.now()
     const out: IngestTelemetryOutput = {
       received: input.frames.length,
@@ -124,7 +139,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
   }
 
   // -------------------------------------------------------------------------
-
+  //fonction d'ingestion pour le boitier
   private async ingestDevice(
     imei: string,
     frames: TelemetryFrame[],
@@ -259,6 +274,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     out.rejectedReasons[motif] = (out.rejectedReasons[motif] ?? 0) + 1
   }
 
+  //donnée non imcompatible mais qualifiée pour etre utilisé par le système
   private qualifier(
     frame: TelemetryFrame,
     device: { deviceId: string; organizationId: string; vehicleId: string | null },
@@ -314,7 +330,8 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
   private async majTrajet(
     device: { deviceId: string; organizationId: string; vehicleId: string | null },
     lectures: TelemetryReading[],
-    tx: import('#application/ports').TransactionScope,
+    //tx: import('#application/ports').TransactionScope,
+    tx: TransactionScope,
     out: IngestTelemetryOutput
   ): Promise<void> {
     const vehicleId = VehicleId.from(device.vehicleId!)
@@ -357,6 +374,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
           at: l.recordedAt,
           location: l.coordinates,
           speed: l.speed,
+          //seuil de ralenti en kph
           idleThresholdKph: this.settings.idleSpeedThresholdKph,
         })
         trip.close({
@@ -383,6 +401,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     }
   }
 
+  //enregistrement des trames inconnues dans out_messages
   private async journaliserInconnues(imei: string, frames: TelemetryFrame[]): Promise<void> {
     await this.unitOfWork.run(async (tx) => {
       for (const f of frames) {

@@ -1,6 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import UserModel from '#infrastructure/persistence/models/user_model'
+import RoleModel from '#infrastructure/persistence/models/role_model'
+import OrganizationModel from '#infrastructure/persistence/models/organization_model'
+import { isPlatformOperator } from '#domain/identity/role_policy'
 import { loginValidator } from '#presentation/http/validators/identity/auth_validators'
 
 /**
@@ -13,19 +16,20 @@ import { loginValidator } from '#presentation/http/validators/identity/auth_vali
 export default class AuthController {
   /** POST /api/v1/auth/login */
   async login({ request, response }: HttpContext) {
+    //methode de login ajouter numéro de téléphone et rendre télephone unique dans user model
     const { email, password } = await request.validateUsing(loginValidator)
 
     const user = await UserModel.query().where('email', email).whereNull('deleted_at').first()
 
     // Message identique que le compte existe ou non : ne pas révéler
     // quels e-mails sont enregistrés.
-
     const invalid = {
       error: { code: 'E_INVALID_CREDENTIALS', message: 'Identifiants invalides', details: {} },
     }
 
     if (!user) return response.unauthorized(invalid)
 
+    //compte véroullé
     if (user.isLocked) {
       return response.status(423).send({
         error: {
@@ -36,6 +40,7 @@ export default class AuthController {
       })
     }
 
+    //5 echecs blocage de compte sur 15 minutes
     if (!(await user.verifyPassword(password))) {
       user.failedAttempts += 1
       // Verrouillage progressif : 5 échecs = 15 minutes.
@@ -69,16 +74,49 @@ export default class AuthController {
     })
   }
 
-  /** GET /api/v1/auth/me */
+  /**
+   * GET /api/v1/auth/me
+   *
+   * Enrichi de l'organisation et du rôle (avec ses habilitations) : le
+   * tableau de bord client masque les actions que l'API refuserait, sans
+   * deviner. L'API reste seule juge — masquer n'est pas autoriser.
+   * Champs historiques (`organizationId`, `roleId`) inchangés.
+   */
+  //utilisateur courant et ses permissions
   async me({ auth, response }: HttpContext) {
     const user = auth.getUserOrFail() as UserModel
+    const [role, organisation] = await Promise.all([
+      RoleModel.query()
+        .where('id', user.roleId)
+        .select('id', 'code', 'name', 'permissions')
+        .first(),
+      OrganizationModel.query()
+        .where('id', user.organizationId)
+        .select('id', 'code', 'name', 'is_active')
+        .first(),
+    ])
+    const permissions = role?.permissions ?? []
+
     return response.ok({
       data: {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
+        phone: user.phone ?? null,
         organizationId: user.organizationId,
         roleId: user.roleId,
+        lastLoginAt: user.lastLoginAt?.toISO() ?? null,
+        organization: organisation
+          ? {
+              id: organisation.id,
+              code: organisation.code,
+              name: organisation.name,
+              isActive: organisation.isActive,
+            }
+          : null,
+        role: role ? { id: role.id, code: role.code, name: role.name } : null,
+        permissions,
+        isPlatform: isPlatformOperator(permissions),
       },
     })
   }
@@ -90,3 +128,7 @@ export default class AuthController {
     return response.noContent()
   }
 }
+
+/*
+Ajouter une fonction avec otp pour retrouver changer son mot de passe
+*/

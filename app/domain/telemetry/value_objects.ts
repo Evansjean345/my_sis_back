@@ -4,6 +4,8 @@ import { Identifier, ValueObject, Ok, DomainError, type Result } from '#domain/k
 // Identifiants
 // ---------------------------------------------------------------------------
 
+/*
+Objets et valeurs liées à télémetrie comportant 3 acteurs clés : vehicules , devices et trips */
 export class VehicleId extends Identifier<'VehicleId'> {
   static from(v: string): VehicleId {
     return new VehicleId(v)
@@ -37,7 +39,7 @@ export class InvalidIdentError extends DomainError {
 /**
  * Identifiant transmis par Flespi.
  *
- * Flespi préfixe l'IMEI d'un `0` pour les boîtiers Micodus. On normalise à
+ * Flespi utilise l'IMEI pour les boîtiers Micodus. On normalise à
  * l'entrée : la base ne contient que des IMEI à 15 chiffres, et une même carte
  * SIM ne peut pas produire deux boîtiers distincts selon la présence du zéro.
  */
@@ -67,8 +69,9 @@ export class DeviceIdent extends ValueObject<{ imei: string }> {
   }
 
   /** Forme attendue par l'API Flespi pour les boîtiers Micodus. */
+  //correction et suppression du prefixe 0 (erreur après test technique)
   get flespiIdent(): string {
-    return `0${this.props.imei}`
+    return this.props.imei
   }
 
   toString(): string {
@@ -97,6 +100,7 @@ export const INVALID_REASONS = [
 
 export type InvalidReason = (typeof INVALID_REASONS)[number]
 
+//à servir pour la documentation
 export const INVALID_REASON_LABELS: Record<InvalidReason, string> = {
   null_island: 'Coordonnées nulles — perte de fix GPS',
   invalid_fix: 'Le boîtier signale une position non fiable',
@@ -109,7 +113,7 @@ export const INVALID_REASON_LABELS: Record<InvalidReason, string> = {
 // ---------------------------------------------------------------------------
 // État du contact
 // ---------------------------------------------------------------------------
-
+//contact si le moteur est allumé
 export type IgnitionState = 'on' | 'off' | 'unknown'
 
 export function ignitionFrom(value: boolean | null | undefined): IgnitionState {
@@ -121,9 +125,9 @@ export function ignitionFrom(value: boolean | null | undefined): IgnitionState {
 // ---------------------------------------------------------------------------
 // Statuts de trajet
 // ---------------------------------------------------------------------------
-
 export const TRIP_STATUSES = ['open', 'closed', 'orphan'] as const
 export type TripStatus = (typeof TRIP_STATUSES)[number]
 
+//etat du trajet
 export const TRIP_CLOSE_REASONS = ['ignition_off', 'timeout', 'manual', 'device_removed'] as const
 export type TripCloseReason = (typeof TRIP_CLOSE_REASONS)[number]

@@ -12,11 +12,15 @@ import type { FieldContext } from '@vinejs/vine/types'
  * seule l'organisation CIBLE est ajoutée, par `targetOrganizationValidator`.
  */
 
+//etat d'un compte
 const USER_STATUS = ['pending', 'active', 'suspended'] as const
+//etat d'un véhicule
 const VEHICLE_STATUS = ['draft', 'active', 'maintenance', 'inactive', 'archived'] as const
+//etat d'un tracker
 const DEVICE_STATUS = ['stock', 'active', 'maintenance', 'decommissioned'] as const
+//etat d'une commande
 const COMMAND_STATUS = [
-  'pending_validation',
+  'pending_validation', //supprimer la double validation
   'approved',
   'rejected',
   'queued',
@@ -27,6 +31,7 @@ const COMMAND_STATUS = [
   'cancelled',
 ] as const
 
+//traitement de la date en nano seconde //evite les pièges de new Date()
 const isoInstant = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
   if (typeof value !== 'string') return
   if (Number.isNaN(Date.parse(value))) {
@@ -34,6 +39,7 @@ const isoInstant = vine.createRule((value: unknown, _options: undefined, field: 
   }
 })
 
+//validation de la pagination optionnelle sur lew requetes de l'api
 const pagination = {
   page: vine.number().min(1).optional(),
   perPage: vine.number().min(1).max(100).optional(),

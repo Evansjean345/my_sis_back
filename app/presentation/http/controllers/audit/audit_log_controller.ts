@@ -31,6 +31,9 @@ export default class AuditLogController {
   constructor(private readonly auditLogs: LucidAuditLogReader) {}
 
   /** GET /api/v1/audit-logs */
+  /*
+  Audit logs d'une ou toutes les organisations fonction traitant l'admin de la plateforme et l'admin d'une organisation.
+  */
   async index(ctx: HttpContext) {
     await authorize(ctx, 'viewAuditLogs')
     const filtres = await ctx.request.validateUsing(listAuditLogsValidator)
@@ -65,6 +68,7 @@ export default class AuditLogController {
    * l'organisation est vérifiée : sinon une faute de frappe rendrait une
    * liste vide qu'on prendrait pour « aucune activité ».
    */
+  //fonctions traitant les audit-logs par organisation
   async byOrganization(ctx: HttpContext) {
     await authorize(ctx, 'viewAuditLogs')
     const scope = await organizationScope(ctx, ctx.params.id)
@@ -105,6 +109,9 @@ export default class AuditLogController {
    * Valeurs distinctes d'`action` sur la fenêtre : alimente le filtre du
    * tableau de bord sans lui faire deviner la nomenclature.
    */
+  /*
+  Fonction traitant les audit-logs d'une organisation par les actions efefctuées sur différentes
+  */
   async actions(ctx: HttpContext) {
     await authorize(ctx, 'viewAuditLogs')
     const filtres = await ctx.request.validateUsing(listAuditLogsValidator)

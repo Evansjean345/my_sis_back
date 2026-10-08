@@ -102,6 +102,7 @@ export class LucidUserAccountRepository implements UserAccountRepository {
       id: row.id,
       organizationId: row.organizationId,
       roleId: row.roleId,
+      //type citext(convertit automatiquement en miniscule)
       email: row.email,
       fullName: row.fullName,
       phone: row.phone,

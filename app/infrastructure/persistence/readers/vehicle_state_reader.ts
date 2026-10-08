@@ -17,8 +17,18 @@ import type { VehicleSafetyState, VehicleStateReader } from '#application/securi
  * `upper_inf(period)` sur un tstzrange, que le query builder ne sait pas
  * exprimer dans une clause ON.
  */
+/*
+Pattern lisant l'état du véhicule . Utilisé ici comme un adaptateur pattern . Son but est d'adapter /télémétrie à /Security/
+les données reçus à au véhicule.
+Utilisation de jointure à gauche avec les tables v = vehicule ; d = device ; p = vehicule_last_positions ; da = device_assignments  */
 export class LucidVehicleStateReader implements VehicleStateReader {
   async readSafetyState(vehicleId: string): Promise<VehicleSafetyState | null> {
+    /*
+    v = véhicule
+    d = device
+    p = vehicule_last_positions
+    da = device_assignments
+    */
     const result = await db.rawQuery(
       `SELECT
          v.id                       AS vehicle_id,
@@ -50,16 +60,19 @@ export class LucidVehicleStateReader implements VehicleStateReader {
      * coupable — et le second produit un âge de position égal à l'heure Unix,
      * soit un message d'erreur incompréhensible.
      */
+    //associé une date précise à un évènement
     const horodatage = row.recorded_at ? new Date(row.recorded_at) : null
 
     return {
       vehicleId: row.vehicle_id,
       deviceId: row.device_id ?? null,
       // `trusted` : la valeur vient de la base, déjà bornée par un CHECK SQL.
+      //associé une date precise à la nouvelle valeur de la vitesse reçu en base de donnée
       speed:
         horodatage && row.speed_kph !== null && row.speed_kph !== undefined
           ? Speed.trusted(Number(row.speed_kph))
           : null,
+      //si le contact est allumé
       ignition: row.ignition ?? null,
       recordedAt: horodatage,
       immobilizationEnabled: Boolean(row.immobilization_enabled),

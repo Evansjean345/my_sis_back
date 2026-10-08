@@ -10,36 +10,42 @@ import { BaseDomainEvent } from '#domain/kernel'
  *
  * Leur nom est au passé : ce sont des faits établis, pas des intentions.
  */
+//immobilisation demandé
 export class ImmobilizationRequested extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.immobilization.requested', aggregateId, payload)
   }
 }
 
+//imoobilization validée
 export class ImmobilizationValidated extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.immobilization.validated', aggregateId, payload)
   }
 }
 
+//immobilisation rejetée
 export class ImmobilizationRejected extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.immobilization.rejected', aggregateId, payload)
   }
 }
 
+//commande ennvoyé à flepsi
 export class CommandDispatched extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.command.dispatched', aggregateId, payload)
   }
 }
 
+//commande reconnue
 export class CommandAcknowledged extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.command.acknowledged', aggregateId, payload)
   }
 }
 
+//commande ecouhée
 export class CommandFailed extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {
     super('security.command.failed', aggregateId, payload)

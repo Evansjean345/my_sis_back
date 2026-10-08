@@ -4,6 +4,7 @@ import vine from '@vinejs/vine'
  * Validation des endpoints d'administration flespi (canaux, protocoles).
  */
 
+//validation pour la creation d'un canal
 export const createChannelValidator = vine.compile(
   vine.object({
     name: vine
@@ -26,6 +27,7 @@ export const createChannelValidator = vine.compile(
   })
 )
 
+//update un canal
 export const updateChannelValidator = vine.compile(
   vine.object({
     name: vine
@@ -40,6 +42,7 @@ export const updateChannelValidator = vine.compile(
   })
 )
 
+//Logs d'un canal de à et le nombre
 export const logQueryValidator = vine.compile(
   vine.object({
     /** ISO 8601, ex. 2026-09-10T08:00:00Z */
@@ -49,6 +52,7 @@ export const logQueryValidator = vine.compile(
   })
 )
 
+//messages d'un canal
 export const channelMessagesValidator = vine.compile(
   vine.object({
     currKey: vine.number().min(0).optional(),

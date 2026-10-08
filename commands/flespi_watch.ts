@@ -96,7 +96,9 @@ export default class FlespiWatch extends BaseCommand {
           if (g.qos > 2) this.logger.error(`refusé par le broker (ACL du jeton ?) : ${g.topic}`)
           else this.logger.info(`abonné : ${g.topic}`)
         }
-        this.logger.info('en attente de trames… (le MV730 émet selon son intervalle de suivi)')
+        this.logger.info(
+          'en attente de trames… (le tracker MV730 émet selon son intervalle de suivi)'
+        )
       })
     })
 

@@ -23,7 +23,11 @@ import type { FlespiDeviceType, FlespiProtocol } from '#infrastructure/gateways/
  *
  * Le catalogue change rarement : il est mis en cache une heure en mémoire.
  */
+/*
+NB : fichier à verifier si pour la configuration d'un autre appareil
+*/
 
+//TTL = 120S
 const TTL_MS = 60 * 60 * 1000
 
 interface Entree<T> {
@@ -43,6 +47,7 @@ export class FlespiProtocolGateway {
    * ⚠ Un protocole flespi n'a PAS de champ `title` : le demander dans
    * `fields` provoque un HTTP 400 « field is not allowed » (constaté en réel).
    */
+  //Fonction de tous listant tous les protocols utilisés par flespi (identifiant du canal et son nom)
   async protocols(): Promise<FlespiProtocol[]> {
     if (this.#protocoles && this.#protocoles.expire > Date.now()) return this.#protocoles.valeur
     const result = await this.lister<FlespiProtocol>('/gw/channel-protocols/all', ['id', 'name'])
@@ -51,6 +56,7 @@ export class FlespiProtocolGateway {
   }
 
   /** Protocole par id numérique ou par nom (`micodus`, `concox`, …). */
+  //lister un protocol par son nom ou son id
   async protocol(nomOuId: string | number): Promise<FlespiProtocol | null> {
     const liste = await this.protocols()
     const cle = String(nomOuId).trim().toLowerCase()
@@ -58,6 +64,7 @@ export class FlespiProtocolGateway {
   }
 
   /** Types de boîtiers d'un protocole (id, name, title). */
+  //Lister tous les boitiers pris en compte par un protocol (filtrant le nom , l'id et le titre)
   async deviceTypes(protocolId: number): Promise<FlespiDeviceType[]> {
     const cache = this.#types.get(protocolId)
     if (cache && cache.expire > Date.now()) return cache.valeur
@@ -71,6 +78,7 @@ export class FlespiProtocolGateway {
   }
 
   /** Fiche complète d'un type : schéma de configuration (ident !), commandes, réglages. */
+  //fiche complète pour configurer un device à utiliser pour les nouveaux devices
   async deviceType(protocolId: number, deviceTypeId: number): Promise<FlespiDeviceType | null> {
     const t = await this.client.first<FlespiDeviceType>(
       'GET',
@@ -87,6 +95,7 @@ export class FlespiProtocolGateway {
    * Retourne `null` si le type n'appartient pas à ce protocole — c'est
    * précisément le cas qu'il faut refuser.
    */
+  //fonction pour trouver le nom et le protocol d'un device
   async resolveDeviceType(
     protocolId: number,
     reference: string | number
@@ -108,6 +117,7 @@ export class FlespiProtocolGateway {
    * not allowed`), on retire CE champ et on relance, au lieu de faire échouer
    * tout le diagnostic sur un détail de catalogue.
    */
+  //Liste de tous les protocoles autorisés par flespi(flespi)
   private async lister<T>(chemin: string, champs: string[]): Promise<T[]> {
     let restants = [...champs]
     for (let essai = 0; essai < champs.length; essai++) {

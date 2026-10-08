@@ -22,6 +22,7 @@ import type { AssignableRole } from '#domain/identity/role_policy'
 // Données échangées
 // ---------------------------------------------------------------------------
 
+//interface liée aux données d'une organisation
 export interface OrganizationData {
   code: string
   name: string
@@ -34,13 +35,16 @@ export interface OrganizationData {
   settings: Record<string, unknown>
 }
 
+//interface renvoyée à la creation  d'une organisation
 export interface OrganizationRecord extends OrganizationData {
   id: string
   createdAt: Date
 }
 
+//status d'un user
 export type UserStatus = 'pending' | 'active' | 'suspended'
 
+//interface lié aux données d'un user
 export interface UserAccountData {
   organizationId: string
   roleId: string
@@ -54,6 +58,7 @@ export interface UserAccountData {
 }
 
 /** Vue d'un compte renvoyée par les cas d'usage — jamais l'empreinte du mot de passe. */
+//interface renvoyée après la creation d'une organisation
 export interface UserAccountRecord {
   id: string
   organizationId: string
@@ -70,7 +75,6 @@ export interface UserAccountRecord {
 // ---------------------------------------------------------------------------
 // Ports
 // ---------------------------------------------------------------------------
-
 export interface OrganizationRepository {
   /** Recherche parmi les organisations NON supprimées (index unique partiel). */
   codeExists(code: string, tx?: TransactionScope): Promise<boolean>

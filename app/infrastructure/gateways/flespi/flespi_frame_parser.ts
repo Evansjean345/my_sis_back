@@ -24,6 +24,7 @@ import type { TelemetryFrame } from '#application/telemetry/dto/telemetry_frame'
  *   timestamp · server.timestamp
  */
 
+//gestion des erreurs de trames reçu par flespi
 export class FlespiParseError extends Error {
   constructor(
     readonly detail: string,
@@ -35,12 +36,14 @@ export class FlespiParseError extends Error {
 
 type Brut = Record<string, unknown>
 
+//fonction retrournat le nombre de trames
 const nombre = (v: unknown): number | null => {
   if (typeof v === 'number' && Number.isFinite(v)) return v
   if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v)
   return null
 }
 
+//fonction determinant si une trame est valide ou non
 const booleen = (v: unknown): boolean | null => {
   if (typeof v === 'boolean') return v
   if (v === 1 || v === '1') return true
@@ -53,7 +56,7 @@ const booleen = (v: unknown): boolean | null => {
  * Confondre les deux place les positions en 1970 — l'erreur silencieuse
  * classique sur ce type d'intégration.
  */
-
+//gestion de l'horodotrage pour les trames
 const versDate = (v: unknown): Date | null => {
   const n = nombre(v)
   if (n === null) return null
@@ -63,6 +66,7 @@ const versDate = (v: unknown): Date | null => {
 }
 
 /** Première clé présente parmi les variantes possibles. */
+//fonction recupérant la première trame
 const premier = (o: Brut, ...cles: string[]): unknown => {
   for (const c of cles) {
     if (o[c] !== undefined && o[c] !== null) return o[c]
@@ -91,6 +95,10 @@ export class FlespiFrameParser {
       .map((i) => this.parseOne(i, topic))
   }
 
+  /*
+    Fonction traitant les trames reçues par flespi 
+    (Toutes les données publiées par le boitier via le protocl mqtt) (flespi/message/gw/devices/{id})
+    */
   private parseOne(brut: Brut, topic?: string): TelemetryFrame {
     /**
      * Identifiant du boîtier :
@@ -118,9 +126,11 @@ export class FlespiFrameParser {
     if (!recordedAt) {
       throw new FlespiParseError('horodatage absent ou invalide', brut)
     }
+    //gestion du timestamp
     const receivedAt = versDate(premier(brut, 'server.timestamp')) ?? new Date()
-
+    //gestion de la position pour la latitude
     const latitude = nombre(premier(brut, 'position.latitude', 'latitude'))
+    //gestion de la position pour longitude
     const longitude = nombre(premier(brut, 'position.longitude', 'longitude'))
     if (latitude === null || longitude === null) {
       throw new FlespiParseError('coordonnées absentes', brut)

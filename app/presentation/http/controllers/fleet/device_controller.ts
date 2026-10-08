@@ -20,6 +20,7 @@ import {
   assignDeviceValidator,
   listDevicesValidator,
   syncDeviceFlespiValidator,
+  clientUpdateDeviceValidator,
 } from '#presentation/http/validators/fleet/fleet_validators'
 import { logQueryValidator } from '#presentation/http/validators/fleet/flespi_validators'
 import { toFlespiSeconds } from '#presentation/http/support/flespi_time'
@@ -41,6 +42,14 @@ import {
   serializeWithOrganizations,
   type TenantScope,
 } from '#presentation/http/support/platform_scope'
+
+/*
+Fichier corriger pour la gestion des permissions pour un admin ou un client
+correction des permissions pour les methodes du controller DeviceController
+viewDevices et manageDevices pour un admin ou un client
+ancinnement viewVehicles et manageVehicles pour un admin ou un client
+supprimer certaines routes de creation de device pour le client des routes sont inutiles sur son tableau de bord
+*/
 
 /**
  * =========================================================================
@@ -75,6 +84,9 @@ export default class DeviceController {
    * chaque montage/démontage/changement d'ident : sinon les positions sont
    * rattachées pendant 5 minutes à l'ancien véhicule.
    */
+  /*
+  methode permettant d'invalider le cache d'un boitier (ident) dans le cache mémoire et Redis
+  */
   private async invalider(device: { imei: string; flespiIdent: string | null }): Promise<void> {
     const resolver = this.resolver
     await Promise.all(
@@ -85,8 +97,14 @@ export default class DeviceController {
   }
 
   /** GET /api/v1/devices */
+  /*
+  Affiche la liste des devices 
+  NB : correction de la permission pour lister les boitiers pour un admin ou un client
+  */
   async index(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    //correction : autorisation de lister les boitiers pour un admin ou un client
+    await authorize(ctx, 'viewDevices')
     const {
       page = 1,
       perPage = 25,
@@ -119,9 +137,29 @@ export default class DeviceController {
     return ctx.response.ok(resultat.toJSON())
   }
 
+  /**
+   * GET /api/v1/devices/stats — trackers AFFECTÉS à l'organisation :
+   * montés / en stock, rattachement flespi, silencieux depuis 24 h.
+   * Même contenu que `/admin/devices/stats`, cloisonné à l'acteur.
+   */
+  /*
+  Voir les stats d'un device 
+  NB : correction de la permission
+  */
+  async stats(ctx: HttpContext) {
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
+    return this.statistiques(ctx, ownScope(ctx))
+  }
+
   /** GET /api/v1/devices/:id */
+  /*
+  Voir un device precis par son Id 
+  NB : correction de la permission
+  */
   async show(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return this.showScoped(ctx, ownScope(ctx))
   }
 
@@ -136,8 +174,12 @@ export default class DeviceController {
    * Micodus : fournir `terminalId` (ID de l'étiquette) ou `flespiIdent`.
    * L'IMEI seul ne suffit pas — cf. flespi_ident.ts.
    */
+  /*
+  Correction de la permission pour la creation d'un boitier pour un admin ou un client
+  */
   async store(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     return this.storeScoped(ctx, toExecutionContext(ctx).organizationId)
   }
 
@@ -147,15 +189,28 @@ export default class DeviceController {
    * Rattache après coup un boîtier SISBM à flespi (créé en stock sans
    * `syncFlespi`, ou device flespi recréé). Mêmes garde-fous que la création.
    */
+  /*
+  Correction de la permission pour la synchronisation d'un boitier pour un admin ou un client
+  */
   async syncFlespi(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     return this.syncFlespiScoped(ctx, ownScope(ctx))
   }
 
-  /** PATCH /api/v1/devices/:id */
+  /**
+   * PATCH /api/v1/devices/:id — côté CLIENT, annotations seulement (`notes`,
+   * `name`). IMEI, SIM, ident flespi et statut relèvent de l'exploitant
+   * (`PATCH /admin/devices/:id`) : une erreur y coupe la remontée des positions.
+   */
+  /*
+  Correction de la permission pour la mise à jour d'un boitier pour un admin ou un client
+  */
   async update(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
-    return this.updateScoped(ctx, ownScope(ctx))
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
+    const payload = await ctx.request.validateUsing(clientUpdateDeviceValidator)
+    return this.updateScoped(ctx, ownScope(ctx), payload)
   }
 
   /**
@@ -164,8 +219,12 @@ export default class DeviceController {
    * Flespi d'abord, base ensuite. Si Flespi échoue, le boîtier n'est pas
    * archivé chez nous et l'opération reste rejouable.
    */
+  /*
+  Correction de la permission pour la suppression d'un boitier pour un admin ou un client
+  */
   async destroy(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     return this.destroyScoped(ctx, ownScope(ctx))
   }
 
@@ -177,14 +236,22 @@ export default class DeviceController {
    * fois. En cas de chevauchement, PostgreSQL lève une `exclusion_violation`
    * traduite en 409 par le gestionnaire d'exceptions.
    */
+  /*
+  Correction de la permission pour l'affectation d'un boitier pour un admin ou un client
+  */
   async assign(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     return this.assignScoped(ctx, ownScope(ctx))
   }
 
   /** DELETE /api/v1/devices/:id/assignment — démonter le boîtier. */
+  /*
+  Correction de la permission pour la désaffectation d'un boitier pour un admin ou un client
+  */
   async unassign(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     return this.unassignScoped(ctx, ownScope(ctx))
   }
 
@@ -195,14 +262,22 @@ export default class DeviceController {
    * Il répond à la question « le boîtier émet-il, et est-ce nous qui perdons
    * les trames ? ». La source de vérité de l'historique reste `positions`.
    */
+  /*
+  Correction de la permission pour la visualisation des données en temps réel pour un admin ou un client
+  */
   async liveTelemetry(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
+    //await authorize(ctx, 'viewVehicles')
     return this.liveTelemetryScoped(ctx, ownScope(ctx))
   }
 
   /** GET /api/v1/devices/:id/telemetry/history?from=&to=&count= */
+  /*
+  Correction de la permission pour la visualisation des données en temps réel pour un admin ou un client
+  */
   async liveHistory(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return this.liveHistoryScoped(ctx, ownScope(ctx))
   }
 
@@ -216,26 +291,42 @@ export default class DeviceController {
    *   - le boîtier est-il connecté, quand a-t-il émis pour la dernière fois ?
    *   - quelle est sa dernière position connue ?
    */
+  /*
+  Correction de la permission pour la visualisation du statut Flespi pour un admin ou un client
+  */
   async flespiStatus(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    // await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return this.flespiStatusScoped(ctx, ownScope(ctx))
   }
 
   /** GET /api/v1/devices/:id/flespi/logs?from=&to=&count= — connexions, erreurs de décodage, modifications. */
+  /*
+  Correction de la permission pour la visualisation des logs Flespi pour un admin ou un client
+  */
   async flespiLogs(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    // await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return this.flespiLogsScoped(ctx, ownScope(ctx))
   }
 
   /** GET /api/v1/devices/:id/flespi/telemetry — dernière valeur de chaque paramètre. */
+  /*
+  Correction de la permission pour la visualisation des données Flespi pour un admin ou un client
+  */
   async flespiTelemetry(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    // await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return this.flespiTelemetryScoped(ctx, ownScope(ctx))
   }
 
   // =========================================================================
   //  TABLEAU DE BORD ADMIN — toutes organisations (joker `*` exigé)
   // =========================================================================
+
+  /*
+  Version Admin aucune correction a apportée
+  */
 
   /**
    * GET /api/v1/admin/devices
@@ -281,57 +372,7 @@ export default class DeviceController {
   async statsAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const { organizationId } = await ctx.request.validateUsing(adminOrganizationFilterValidator)
-
-    const base = () => {
-      const q = DeviceModel.query().whereNull('deleted_at')
-      if (organizationId) q.where('organization_id', organizationId)
-      return q
-    }
-    const total = async (q: ReturnType<typeof base>) => {
-      const ligne = await q.count('* as total').first()
-      return Number(ligne?.$extras.total ?? 0)
-    }
-
-    const [parStatut, parOrganisation, rattaches, montes, silencieux] = await Promise.all([
-      base().select('status').count('* as total').groupBy('status'),
-      base().select('organization_id').count('* as total').groupBy('organization_id'),
-      total(base().whereNotNull('flespi_device_id')),
-      total(
-        base().whereExists((sub) =>
-          sub
-            .from('device_assignments as da')
-            .whereRaw('da.device_id = devices.id')
-            .whereRaw('upper_inf(da.period)')
-        )
-      ),
-      total(
-        base()
-          .whereNot('status', 'decommissioned')
-          .where((q) =>
-            q
-              .whereNull('last_seen_at')
-              .orWhere('last_seen_at', '<', DateTime.now().minus({ hours: 24 }).toSQL()!)
-          )
-      ),
-    ])
-
-    const compteurs = countsBy(parStatut, 'status')
-    const organisations = await organizationsOf(parOrganisation.map((l) => l.organizationId))
-    const tous = Object.values(compteurs).reduce((a, b) => a + b, 0)
-
-    return ctx.response.ok({
-      data: {
-        total: tous,
-        byStatus: compteurs,
-        flespi: { linked: rattaches, notLinked: tous - rattaches },
-        assignment: { assigned: montes, unassigned: tous - montes },
-        silentSince24h: silencieux,
-        byOrganization: parOrganisation.map((l) => ({
-          organization: organisations[l.organizationId] ?? { id: l.organizationId },
-          total: Number(l.$extras.total ?? 0),
-        })),
-      },
-    })
+    return this.statistiques(ctx, { organizationId: organizationId ?? null })
   }
 
   /** GET /api/v1/admin/devices/:id (admin) */
@@ -366,7 +407,8 @@ export default class DeviceController {
   /** PATCH /api/v1/admin/devices/:id (admin) */
   async updateAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
-    return this.updateScoped(ctx, PLATFORM_SCOPE)
+    const payload = await ctx.request.validateUsing(updateDeviceValidator)
+    return this.updateScoped(ctx, PLATFORM_SCOPE, payload)
   }
 
   /** DELETE /api/v1/admin/devices/:id (admin) */
@@ -417,10 +459,75 @@ export default class DeviceController {
     return this.flespiTelemetryScoped(ctx, PLATFORM_SCOPE)
   }
 
+  /*
+  ----------------------------------------------------------------------------------------------------------
+  */
+
   // -------------------------------------------------------------------------
   //  Implémentations partagées client / admin : seul le périmètre change.
   // -------------------------------------------------------------------------
 
+  /**
+   * Parc boîtiers : par statut, par organisation, rattachement flespi, montés
+   * ou en stock, et « silencieux » (aucune trame depuis 24 h ou jamais vus).
+   */
+  private async statistiques(ctx: HttpContext, scope: TenantScope) {
+    const base = () => applyScope(DeviceModel.query().whereNull('deleted_at'), scope)
+    const total = async (q: ReturnType<typeof base>) => {
+      const ligne = await q.count('* as total').first()
+      return Number(ligne?.$extras.total ?? 0)
+    }
+
+    const [parStatut, parOrganisation, rattaches, montes, silencieux] = await Promise.all([
+      base().select('status').count('* as total').groupBy('status'),
+      base().select('organization_id').count('* as total').groupBy('organization_id'),
+      total(base().whereNotNull('flespi_device_id')),
+      total(
+        base().whereExists((sub) =>
+          sub
+            .from('device_assignments as da')
+            .whereRaw('da.device_id = devices.id')
+            .whereRaw('upper_inf(da.period)')
+        )
+      ),
+      total(
+        base()
+          .whereNot('status', 'decommissioned')
+          .where((q) =>
+            q
+              .whereNull('last_seen_at')
+              .orWhere('last_seen_at', '<', DateTime.now().minus({ hours: 24 }).toSQL()!)
+          )
+      ),
+    ])
+
+    const compteurs = countsBy(parStatut, 'status')
+    const organisations = await organizationsOf(parOrganisation.map((l) => l.organizationId))
+    const tous = Object.values(compteurs).reduce((a, b) => a + b, 0)
+
+    return ctx.response.ok({
+      data: {
+        total: tous,
+        byStatus: compteurs,
+        flespi: { linked: rattaches, notLinked: tous - rattaches },
+        assignment: { assigned: montes, unassigned: tous - montes },
+        silentSince24h: silencieux,
+        byOrganization: parOrganisation.map((l) => ({
+          organization: organisations[l.organizationId] ?? { id: l.organizationId },
+          total: Number(l.$extras.total ?? 0),
+        })),
+      },
+    })
+  }
+
+  /*
+  renvoi des informations d'un boitier, avec l'affectation au véhicule si monté. 
+  Le boitier est recherché dans le périmètre de l'acteur (client) ou dans toute la plateforme (admin).
+  tables devices, device_assignments, vehicles
+  1. Vérifie que le boîtier existe dans le périmètre.
+  2. Recherche l'affectation en cours (si monté) et le véhicule associé.
+  3. Retourne les informations du boîtier et de l'affectation (ou null si non monté).
+  */
   private async showScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
@@ -442,6 +549,11 @@ export default class DeviceController {
     })
   }
 
+  /*
+  create avec ou sans rattache un boitier à un device flespi, avec le type et le protocole du canal. Le boitier est mis à jour en base avec le deviceId et l'ident flespi.
+  1. Vérifie que le boîtier n'existe pas déjà en base.
+  2. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
+  */
   private async storeScoped(ctx: HttpContext, organizationId: string) {
     const payload = await ctx.request.validateUsing(createDeviceValidator)
 
@@ -527,10 +639,20 @@ export default class DeviceController {
     }
   }
 
+  /*
+  Synchronisation d'un boîtier existant avec Flespi : création ou rattachement d'un device flespi, mise à jour du channel, du type et du protocole. Le boîtier est mis à jour en base avec le deviceId et l'ident flespi.
+  1. Vérifie que le boîtier existe en base.
+  2. Vérifie qu'il n'est pas déjà rattaché à un device flespi.
+  3. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
+  4. Met à jour le boîtier en base avec le deviceId, l'ident et le protocole.
+  5. Invalide le cache du boîtier pour que le worker d'ingestion rattache les trames au bon véhicule.
+  6. Retourne les informations du boîtier et du device flespi.
+  */
   private async syncFlespiScoped(ctx: HttpContext, scope: TenantScope) {
     const payload = await ctx.request.validateUsing(syncDeviceFlespiValidator)
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
+    //verification que le boitier n'est pas déjà rattaché à un device flespi
     if (device.flespiDeviceId) {
       const existant = await this.gateway.get(device.flespiDeviceId).catch(() => null)
       if (existant) {
@@ -544,6 +666,7 @@ export default class DeviceController {
       }
     }
 
+    //creation et configuration du device chez flespi, avec le type et le protocole du canal
     const channelId =
       payload.flespiChannelId ?? device.flespiChannelId ?? sisbmConfig.flespi.channelId
     const prov = this.provisioning
@@ -561,6 +684,7 @@ export default class DeviceController {
     })
 
     try {
+      // Mise à jour locale du boîtier avec les infos flespi : deviceId, channelId, ident et protocole.
       const ancien = { imei: device.imei, flespiIdent: device.flespiIdent }
       device.merge({
         flespiDeviceId: provision.device.id,
@@ -588,8 +712,12 @@ export default class DeviceController {
     })
   }
 
-  private async updateScoped(ctx: HttpContext, scope: TenantScope) {
-    const payload = await ctx.request.validateUsing(updateDeviceValidator)
+  //update d'un boitier : nom, téléphone, ident flespi, notes. IMEI et SIM sont immuables.
+  private async updateScoped(
+    ctx: HttpContext,
+    scope: TenantScope,
+    payload: Awaited<ReturnType<typeof updateDeviceValidator.validate>>
+  ) {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
 
@@ -610,6 +738,7 @@ export default class DeviceController {
       })
     }
 
+    //update local device
     device.merge(local)
     if (flespiIdent !== undefined) device.flespiIdent = flespiIdent
     await device.save()
@@ -620,6 +749,9 @@ export default class DeviceController {
     return ctx.response.ok({ data: device.serialize() })
   }
 
+  /*
+  Suppression d'un boîtier : Flespi d'abord, base ensuite. le boitier est mis hors service et archivé (deleted_at) : il n'est pas physiquement supprimé de la base, pour conserver l'historique des positions du véhicule.
+  */
   private async destroyScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
@@ -667,10 +799,16 @@ export default class DeviceController {
     device.deletedAt = DateTime.now()
     device.status = 'decommissioned'
     await device.save()
+    //supprimer le cache du boitier pour que le worker d'ingestion rattache les trames au bon véhicule
     await this.invalider(device)
     return ctx.response.noContent()
   }
 
+  /*
+  Assignation d'un boîtier à un véhicule : INSERT dans device_assignments, avec
+  mise à jour de la période de l'affectation précédente (si existante) et du
+  statut du boîtier. Le tout dans une transaction.
+  */
   private async assignScoped(ctx: HttpContext, scope: TenantScope) {
     const { vehicleId, installNotes } = await ctx.request.validateUsing(assignDeviceValidator)
     const contexte = toExecutionContext(ctx)
@@ -727,10 +865,12 @@ export default class DeviceController {
       await trx.from('devices').where('id', ctx.params.id).update({ status: 'active' })
     })
 
+    //supprimer le cache du boitier pour que le worker d'ingestion rattache les trames au bon véhicule
     await this.invalider(device)
     return ctx.response.created({ data: { deviceId: ctx.params.id, vehicleId } })
   }
 
+  //selectionner le boîtier dans le périmètre et le démonter (UPDATE device_assignments)
   private async unassignScoped(ctx: HttpContext, scope: TenantScope) {
     const contexte = toExecutionContext(ctx)
 
@@ -751,10 +891,14 @@ export default class DeviceController {
         error: { code: 'E_NOT_FOUND', message: 'Aucune affectation en cours', details: {} },
       })
     }
+    //supprimer le cache du boitier pour que le worker d'ingestion rattache les trames au bon véhicule
     await this.invalider(device)
     return ctx.response.noContent()
   }
 
+  /*
+  méthode permettant de retrouver le dernier message d'un boitier rattaché à flespi (flespiDeviceId non null)
+  */
   private async liveTelemetryScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)
     if (!device) return
@@ -762,6 +906,9 @@ export default class DeviceController {
     return ctx.response.ok({ data: { source: 'flespi', message } })
   }
 
+  /*
+  Méthode permettant de retrouver les logs d'un boitier rattaché à flespi (flespiDeviceId non null)
+  */
   private async liveHistoryScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)
     if (!device) return
@@ -787,6 +934,9 @@ export default class DeviceController {
     return ctx.response.ok({ data: { source: 'flespi', count: messages.length, messages } })
   }
 
+  /*
+  Méthode permettant de retrouver le statut d'un boitier rattaché à flespi (flespiDeviceId non null) et de renvoyer les informations de diagnostic.
+  */
   private async flespiStatusScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)
     if (!device) return
@@ -877,6 +1027,9 @@ export default class DeviceController {
     })
   }
 
+  /* 
+  Trouver les logs d'un boitier rattaché à flespi (flespiDeviceId non null)
+  */
   private async flespiLogsScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)
     if (!device) return
@@ -889,6 +1042,9 @@ export default class DeviceController {
     return ctx.response.ok({ data: logs })
   }
 
+  /*
+  Trouver un boitier rattaché à flespi (flespiDeviceId non null) et ses valeurs de télémétrie. 
+  */
   private async flespiTelemetryScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)
     if (!device) return
@@ -896,6 +1052,7 @@ export default class DeviceController {
   }
 
   /** Boîtier de l'organisation ET rattaché à flespi ; sinon répond (404 / 409) et renvoie null. */
+  //troouver les boitiers dans le périmètre d'une organisation (ou de la plateforme) ET rattaché à flespi (flespiDeviceId non null)
   private async trouverRattache(ctx: HttpContext, scope: TenantScope): Promise<DeviceModel | null> {
     const device = await this.trouver(ctx, scope)
     if (!device) {
@@ -918,11 +1075,13 @@ export default class DeviceController {
   // -------------------------------------------------------------------------
 
   /** Cherché DANS le périmètre : un id d'un autre client donne 404, pas une fuite. */
+  //Trouver les boitiers dans le périmètre d'une organisation (ou de la plateforme)
   private trouver(ctx: HttpContext, scope: TenantScope): Promise<DeviceModel | null> {
     const query = DeviceModel.query().where('id', ctx.params.id).whereNull('deleted_at')
     return applyScope(query, scope).first()
   }
 
+  //not found response pour les boitiers introuvables (hors périmètre ou inexistant)
   private introuvable(ctx: HttpContext) {
     return ctx.response.notFound({
       error: { code: 'E_NOT_FOUND', message: 'Boîtier introuvable', details: {} },

@@ -7,6 +7,7 @@ import { DomainError } from '#domain/kernel'
  * journaux d'audit et dans les traductions du front. On n'en change jamais un
  * sans le traiter comme un changement d'API.
  */
+//erreur liée à la vitesse dangeereuse
 export class UnsafeSpeedError extends DomainError {
   readonly code = 'E_UNSAFE_SPEED'
   readonly httpStatus = 422
@@ -20,6 +21,7 @@ export class UnsafeSpeedError extends DomainError {
  * Contrainte CM-07 — la plus importante de la plateforme.
  * Couper le moteur d'un véhicule lancé est un risque humain, pas un bug.
  */
+//ne pas coupé le moteur d'un vehicule roulant >= 5km/h
 export class VehicleInMotionError extends DomainError {
   readonly code = 'E_VEHICLE_IN_MOTION'
   readonly httpStatus = 422
@@ -34,6 +36,7 @@ export class VehicleInMotionError extends DomainError {
   }
 }
 
+//raison invalide pour lancement d'une commande
 export class InvalidReasonError extends DomainError {
   readonly code = 'E_INVALID_REASON'
   readonly httpStatus = 422
@@ -44,6 +47,7 @@ export class InvalidReasonError extends DomainError {
 }
 
 /** Séparation des rôles : le valideur ne peut pas être le demandeur. */
+//separation des roles pour la double validation d'une commande (à supprimer)
 export class SelfValidationError extends DomainError {
   readonly code = 'E_SELF_VALIDATION'
   readonly httpStatus = 403
@@ -58,6 +62,7 @@ export class SelfValidationError extends DomainError {
 }
 
 /** Contrainte CM-09 : une seule commande en vol par tracker. */
+//une seule commande en cours par tracker
 export class CommandAlreadyInFlightError extends DomainError {
   readonly code = 'E_COMMAND_IN_FLIGHT'
   readonly httpStatus = 409
@@ -71,6 +76,7 @@ export class CommandAlreadyInFlightError extends DomainError {
   }
 }
 
+//erreur de transition pour etat d'une commande
 export class InvalidTransitionError extends DomainError {
   readonly code = 'E_INVALID_TRANSITION'
   readonly httpStatus = 409
@@ -80,6 +86,7 @@ export class InvalidTransitionError extends DomainError {
   }
 }
 
+//expiration d'une commande
 export class CommandExpiredError extends DomainError {
   readonly code = 'E_COMMAND_EXPIRED'
   readonly httpStatus = 409
@@ -93,6 +100,7 @@ export class CommandExpiredError extends DomainError {
   }
 }
 
+//immobilisation desactivé sur un véhicule
 export class ImmobilizationDisabledError extends DomainError {
   readonly code = 'E_IMMOBILIZATION_DISABLED'
   readonly httpStatus = 403
@@ -106,6 +114,7 @@ export class ImmobilizationDisabledError extends DomainError {
   }
 }
 
+//traiter si le tracker installé à un relais de coupure moteur (true/false)
 export class DeviceNotEquippedError extends DomainError {
   readonly code = 'E_DEVICE_NO_RELAY'
   readonly httpStatus = 422
@@ -122,6 +131,7 @@ export class DeviceNotEquippedError extends DomainError {
  * en amont (boîtier non monté, ingestion arrêtée, boîtier muet), et le message
  * doit le dire — sinon on annonce « position vieille de 1 789 178 587 s ».
  */
+//aucune position reçu pour un vehicle
 export class NoPositionError extends DomainError {
   readonly code = 'E_NO_POSITION'
   readonly httpStatus = 422
@@ -136,6 +146,7 @@ export class NoPositionError extends DomainError {
   }
 }
 
+//limitation de la dernière position connue
 export class StalePositionError extends DomainError {
   readonly code = 'E_STALE_POSITION'
   readonly httpStatus = 422

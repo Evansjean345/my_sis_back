@@ -12,16 +12,20 @@ import type { TransactionScope } from '#domain/kernel'
  * c'est ce qui empêche la logique métier de fuir vers la couche de données.
  */
 export interface DeviceCommandRepository {
+  //trouver la commande effectuée et la collect des évènements sur cette commande
   findById(id: CommandId, tx?: TransactionScope): Promise<DeviceCommand | null>
-
   /**
    * Commande occupant actuellement le tracker (contrainte CM-09).
    * Appelée sous verrou dans la transaction d'émission.
    */
+  /*
+  //trouver une commande en cours sur un tracker et la porté de transaction coolect les évènements efféctués
+ */
   findInFlightByDevice(deviceId: DeviceId, tx?: TransactionScope): Promise<DeviceCommand | null>
 
   save(command: DeviceCommand, tx?: TransactionScope): Promise<void>
 
   /** Commandes dont le TTL est dépassé — balayage par tâche planifiée. */
+  //(Time To Live ) Durée de vie des commandes
   findExpirable(now: Date, limit: number): Promise<DeviceCommand[]>
 }

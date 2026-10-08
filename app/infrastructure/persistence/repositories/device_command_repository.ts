@@ -104,6 +104,7 @@ export class LucidDeviceCommandRepository implements DeviceCommandRepository {
     }
   }
 
+  //double avlidation à supprimer
   async findExpirable(now: Date, limit: number): Promise<DeviceCommand[]> {
     const rows = await DeviceCommandModel.query()
       .whereIn('status', ['pending_validation', 'approved', 'queued'])

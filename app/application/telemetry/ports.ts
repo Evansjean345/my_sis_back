@@ -38,6 +38,7 @@ export interface TelemetryTransport {
 }
 
 /** Diffusion vers les tableaux de bord (SSE). */
+//server sent events //publications des events
 export interface RealtimeBroadcaster {
   publishPosition(organizationId: string, payload: Record<string, unknown>): Promise<void>
 }

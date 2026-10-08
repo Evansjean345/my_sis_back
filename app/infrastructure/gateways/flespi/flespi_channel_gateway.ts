@@ -25,6 +25,7 @@ import type {
  *   GET    /gw/channels/{id}/connections/all  → connexions TCP actives
  */
 
+//interface de creation d'un canal utile pour ajouter un nouvel appareil
 export interface CreateChannelInput {
   name: string
   /** `micodus` pour les MV730. Ignoré si `protocolId` est fourni. */
@@ -36,6 +37,7 @@ export interface CreateChannelInput {
   configuration?: Record<string, unknown> | null
 }
 
+//mise à jour d'un canal (à ne pas utiliser ne production)
 export interface UpdateChannelInput {
   name?: string
   enabled?: boolean
@@ -43,6 +45,7 @@ export interface UpdateChannelInput {
   configuration?: Record<string, unknown> | null
 }
 
+//logs d'un canal définit comme 301 evenènement flespi -logs
 export interface LogQuery {
   /** Horodatages en SECONDES (flespi). */
   from?: number
@@ -53,6 +56,7 @@ export interface LogQuery {
   filter?: string
 }
 
+//interface de gestion pour messages sur un canal
 export interface ChannelMessagesQuery {
   /** Curseur renvoyé par l'appel précédent (`next_key`). 0 = début du tampon. */
   currKey?: number
@@ -60,6 +64,7 @@ export interface ChannelMessagesQuery {
   limitSize?: number
 }
 
+//interface de gestion pour un canal
 export interface ChannelConnection {
   id?: number
   ident?: string
@@ -71,15 +76,18 @@ export interface ChannelConnection {
 export class FlespiChannelGateway {
   constructor(private readonly client: FlespiClient) {}
 
+  //lister les canaux flespi
   async list(): Promise<FlespiChannel[]> {
     const env = await this.client.request<FlespiChannel>('GET', '/gw/channels/all')
     return env.result
   }
 
+  //retrouver un canal flespi par son Id
   async get(channelId: number): Promise<FlespiChannel | null> {
     return this.client.item<FlespiChannel>(`/gw/channels/${channelId}`)
   }
 
+  //creation d'un canal flespi
   async create(input: CreateChannelInput): Promise<FlespiChannel> {
     const item: Record<string, unknown> = { name: input.name }
     if (input.protocolId) item.protocol_id = input.protocolId
@@ -96,6 +104,7 @@ export class FlespiChannelGateway {
     return canal
   }
 
+  //mise à jour d'un canal flespi (methode à ne pas utiliser sur canal à production)
   async update(channelId: number, input: UpdateChannelInput): Promise<FlespiChannel> {
     const corps: Record<string, unknown> = {}
     if (input.name !== undefined) corps.name = input.name
@@ -110,12 +119,14 @@ export class FlespiChannelGateway {
     return canal
   }
 
+  //suppression d'un canal felspi (à ne supprimer en production)
   async delete(channelId: number): Promise<void> {
     await this.client.request('DELETE', `/gw/channels/${channelId}`)
     logger.info({ channelId }, '[flespi] canal supprimé')
   }
 
   /** Journal du canal : création, modifications, connexions / déconnexions de boîtiers. */
+  //retrouver les logs d'un canal et filtrage des données du logs
   async logs(channelId: number, q: LogQuery = {}): Promise<FlespiLog[]> {
     const env = await this.client.request<FlespiLog>('GET', `/gw/channels/${channelId}/logs`, {
       data: nettoyer({
@@ -135,6 +146,7 @@ export class FlespiChannelGateway {
    * diagnostic n°1 : si un MV730 émet ici mais pas dans son device, c'est
    * l'`ident` ou le type de boîtier qui est faux.
    */
+  //Lister tous les messages du canal
   async messages(
     channelId: number,
     q: ChannelMessagesQuery = {}
@@ -154,6 +166,7 @@ export class FlespiChannelGateway {
   }
 
   /** Connexions TCP actuellement ouvertes sur le canal (ident, IP source, date). */
+  //lister toutes les connexions actives sur le canal (TCP)
   async connections(channelId: number): Promise<ChannelConnection[]> {
     const env = await this.client.request<ChannelConnection>(
       'GET',
@@ -170,6 +183,7 @@ export class FlespiChannelGateway {
    * du boîtier (et non l'IMEI) préfixé d'un `0` : lire l'ident ici évite de
    * le deviner.
    */
+  //requetes pour voir les connexions actives ainsi que les messages tamponnés d'une d'un canal
   async seenIdents(
     channelId: number
   ): Promise<Array<{ ident: string; lastSeen: number | null; source: string }>> {

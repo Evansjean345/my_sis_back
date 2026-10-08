@@ -26,6 +26,11 @@ import type { JsonSchema } from '#infrastructure/gateways/flespi/flespi_types'
  * liste les idents réellement envoyés par les boîtiers connectés.
  */
 
+/*
+NB : utilisé ce fichier pour vérifier les identifiants du 
+device et ajouter de nouveaux protocoles pour extensier l'api
+*/
+
 export class FlespiIdentError extends Error {
   constructor(
     message: string,
@@ -49,6 +54,7 @@ export function buildFlespiIdent(protocolName: string, input: IdentInput): strin
 
   const protocole = protocolName.trim().toLowerCase()
 
+  //ajout des et gestions des nouveaux protocoles ici
   if (protocole === 'micodus') {
     const id = input.terminalId?.trim()
     if (!id) {

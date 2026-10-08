@@ -15,6 +15,7 @@ import { InvalidRoleError, RoleEscalationError } from '#domain/identity/errors'
  * (`PATCH /users/:id`). Deux chemins, une seule règle : c'est ce qui empêche
  * qu'une route oubliée devienne la porte d'escalade.
  */
+//Logique métier gérant l'assignation des rôles utilisé à la création d'un user et à la modification
 export class RoleAssignment {
   constructor(private readonly roles: RoleCatalog) {}
 

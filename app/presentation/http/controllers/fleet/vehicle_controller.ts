@@ -10,6 +10,7 @@ import {
 import { authorize } from '#presentation/http/support/authorize'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 import OrganizationModel from '#infrastructure/persistence/models/organization_model'
+import { liveFleetValidator } from '#presentation/http/validators/fleet/stats_validators'
 import {
   adminListVehiclesValidator,
   adminOrganizationFilterValidator,
@@ -25,6 +26,12 @@ import {
   serializeWithOrganizations,
   type TenantScope,
 } from '#presentation/http/support/platform_scope'
+
+/** Plafond de la carte temps réel : au-delà, c'est un export, pas une carte. */
+/*
+Mettre dans un fichier limite de véhicules affichées sur une carte 
+*/
+const FLEET_LIVE_MAX = 1000
 
 /**
  * =========================================================================
@@ -64,6 +71,72 @@ export default class VehicleController {
 
     const resultat = await query.paginate(page, Math.min(perPage, 100))
     return ctx.response.ok(resultat.toJSON())
+  }
+
+  /**
+   * GET /api/v1/vehicles/stats — indicateurs du parc de l'organisation.
+   * Même contenu que `/admin/vehicles/stats`, cloisonné à l'acteur.
+   */
+  async stats(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    return this.statistiques(ctx, ownScope(ctx))
+  }
+
+  /**
+   * GET /api/v1/fleet/live?status=&vehicleGroupId=
+   *
+   * La flotte de l'organisation pour la carte temps réel, en DEUX requêtes
+   * quel que soit le nombre de véhicules : la liste, puis boîtier monté et
+   * dernière position de toute la page. Remplace « une requête détail par
+   * véhicule » (N+1) côté front, qui plafonnait la carte à 100 véhicules.
+   *
+   * Chaque ligne a la forme de `GET /vehicles/:id` : le front n'a qu'un type.
+   */
+  /*
+  Flotte d'une organisation en temps réel et retrouver un groupe de véhicule par son id 
+  fonction à utiliser pour optimiser le dashboard admin 
+  */
+  async live(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    const { status, vehicleGroupId } = await ctx.request.validateUsing(liveFleetValidator)
+    const org = toExecutionContext(ctx).organizationId
+
+    const query = VehicleModel.query()
+      .where('organization_id', org)
+      .whereNull('deleted_at')
+      .orderBy('registration')
+      .limit(FLEET_LIVE_MAX) //utilisation de la limite
+    if (status) query.where('status', status)
+    else query.whereNot('status', 'archived')
+    if (vehicleGroupId) {
+      // Le groupe est croisé avec l'organisation : un groupe d'un autre client
+      // ne sélectionne rien.
+      query.whereExists((sub) =>
+        sub
+          .from('vehicle_group_members as m')
+          .join('vehicle_groups as g', 'g.id', 'm.vehicle_group_id')
+          .whereRaw('m.vehicle_id = vehicles.id')
+          .where('g.id', vehicleGroupId)
+          .where('g.organization_id', org)
+          .whereNull('g.deleted_at')
+      )
+    }
+
+    const vehicules = await query
+    const details = await this.detailsParVehicule(vehicules.map((v) => v.id))
+
+    return ctx.response.ok({
+      data: vehicules.map((v) => ({
+        ...v.serialize(),
+        ...(details[v.id] ?? { device: null, lastPosition: null }),
+      })),
+      meta: {
+        total: vehicules.length,
+        //valeur courcite
+        truncated: vehicules.length === FLEET_LIVE_MAX,
+        generatedAt: DateTime.now().toISO(),
+      },
+    })
   }
 
   /** GET /api/v1/vehicles/:id */
@@ -128,14 +201,59 @@ export default class VehicleController {
   async statsAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const { organizationId } = await ctx.request.validateUsing(adminOrganizationFilterValidator)
+    return this.statistiques(ctx, { organizationId: organizationId ?? null })
+  }
 
+  /** GET /api/v1/admin/vehicles/:id */
+  async showAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.afficher(ctx, PLATFORM_SCOPE)
+  }
+
+  /** POST /api/v1/admin/vehicles — body : { organizationId, ...champs de POST /vehicles } */
+  async storeAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    const { organizationId } = await ctx.request.validateUsing(targetOrganizationValidator)
+
+    const organisation = await OrganizationModel.query()
+      .where('id', organizationId)
+      .whereNull('deleted_at')
+      .select('id')
+      .first()
+    if (!organisation) return this.introuvable(ctx, 'Organisation')
+
+    return this.creer(ctx, organizationId)
+  }
+
+  /** PATCH /api/v1/admin/vehicles/:id */
+  async updateAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.modifier(ctx, PLATFORM_SCOPE)
+  }
+
+  /** DELETE /api/v1/admin/vehicles/:id — suppression logique. */
+  async destroyAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.archiver(ctx, PLATFORM_SCOPE)
+  }
+
+  // -------------------------------------------------------------------------
+  //  Implémentations partagées client / admin : seul le périmètre change.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Parc par statut, par organisation, et état de connexion issu de
+   * `vehicle_last_positions` (online / idle / offline / never_seen).
+   */
+  private async statistiques(ctx: HttpContext, scope: TenantScope) {
     // Colonnes qualifiées : la répartition par connexion joint `vehicle_last_positions`,
     // qui porte aussi `organization_id` (sinon « column reference is ambiguous »).
-    const base = () => {
-      const q = VehicleModel.query().whereNull('vehicles.deleted_at')
-      if (organizationId) q.where('vehicles.organization_id', organizationId)
-      return q
-    }
+    const base = () =>
+      applyScope(
+        VehicleModel.query().whereNull('vehicles.deleted_at'),
+        scope,
+        'vehicles.organization_id'
+      )
 
     const [parStatut, parOrganisation, parConnexion, equipes] = await Promise.all([
       base().select('status').count('* as total').groupBy('status'),
@@ -176,43 +294,69 @@ export default class VehicleController {
     })
   }
 
-  /** GET /api/v1/admin/vehicles/:id */
-  async showAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.afficher(ctx, PLATFORM_SCOPE)
+  /**
+   * Boîtier monté et dernière position d'un lot de véhicules — UNE requête.
+   * Même projection que le détail d'un véhicule (`afficher`).
+   */
+  /*
+  Détail d'un boitier avec details du boitier et les dernières postions du véhicule 
+  sur lequel le boitier est monté
+  boucle for of pour parcourir les clées et les valeurs des tables jointes (lignes)
+  */
+  private async detailsParVehicule(ids: string[]) {
+    type Detail = {
+      device: Record<string, unknown> | null
+      lastPosition: Record<string, unknown> | null
+    }
+    if (ids.length === 0) return {} as Record<string, Detail>
+
+    // Query builder plutôt que `rawQuery` : knex développe un tableau lié en
+    // liste `IN (?, ?, …)`, ce que `= ANY(:ids)` ne supporte pas.
+    const lignes = await db
+      .from('vehicles as v')
+      .joinRaw('LEFT JOIN device_assignments da ON da.vehicle_id = v.id AND upper_inf(da.period)')
+      .leftJoin('devices as d', 'd.id', 'da.device_id')
+      .leftJoin('vehicle_last_positions as p', 'p.vehicle_id', 'v.id')
+      .whereIn('v.id', ids)
+      .select(
+        'v.id as vehicle_id',
+        'd.id as device_id',
+        'd.imei',
+        'd.model',
+        'd.has_relay',
+        'p.speed_kph',
+        'p.ignition',
+        'p.recorded_at',
+        'p.connection_state',
+        db.raw('ST_Y(p.location::geometry) AS latitude'),
+        db.raw('ST_X(p.location::geometry) AS longitude')
+      )
+
+    const parVehicule: Record<string, Detail> = {}
+    for (const l of lignes as Array<Record<string, any>>) {
+      parVehicule[l.vehicle_id] = {
+        device: l.device_id
+          ? { id: l.device_id, imei: l.imei, model: l.model, hasRelay: l.has_relay }
+          : null,
+        lastPosition: l.recorded_at
+          ? {
+              latitude: l.latitude,
+              longitude: l.longitude,
+              speedKph: l.speed_kph,
+              ignition: l.ignition,
+              recordedAt: l.recorded_at,
+              connectionState: l.connection_state,
+            }
+          : null,
+      }
+    }
+    return parVehicule
   }
 
-  /** POST /api/v1/admin/vehicles — body : { organizationId, ...champs de POST /vehicles } */
-  async storeAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    const { organizationId } = await ctx.request.validateUsing(targetOrganizationValidator)
-
-    const organisation = await OrganizationModel.query()
-      .where('id', organizationId)
-      .whereNull('deleted_at')
-      .select('id')
-      .first()
-    if (!organisation) return this.introuvable(ctx, 'Organisation')
-
-    return this.creer(ctx, organizationId)
-  }
-
-  /** PATCH /api/v1/admin/vehicles/:id */
-  async updateAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.modifier(ctx, PLATFORM_SCOPE)
-  }
-
-  /** DELETE /api/v1/admin/vehicles/:id — suppression logique. */
-  async destroyAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.archiver(ctx, PLATFORM_SCOPE)
-  }
-
-  // -------------------------------------------------------------------------
-  //  Implémentations partagées client / admin : seul le périmètre change.
-  // -------------------------------------------------------------------------
-
+  /*
+  Afficher tous les véhicules d'une organisation , les boitiers montés sur un véhicule
+  et leur derniere position
+  */
   private async afficher(ctx: HttpContext, scope: TenantScope) {
     const vehicule = await this.trouver(ctx, scope)
     if (!vehicule) return this.introuvable(ctx, 'Véhicule')
@@ -254,6 +398,9 @@ export default class VehicleController {
     })
   }
 
+  /*
+  Fonction utilitaire pour créer un véhicule
+  */
   private async creer(ctx: HttpContext, organizationId: string) {
     const payload = await ctx.request.validateUsing(createVehicleValidator)
 
@@ -268,6 +415,9 @@ export default class VehicleController {
     return ctx.response.created({ data: vehicule.serialize() })
   }
 
+  /*
+  Fonction utilitaire pour modifier le statut un véhicule / status = payload.status
+  */
   private async modifier(ctx: HttpContext, scope: TenantScope) {
     const payload = await ctx.request.validateUsing(updateVehicleValidator)
     const vehicule = await this.trouver(ctx, scope)
@@ -278,6 +428,9 @@ export default class VehicleController {
     return ctx.response.ok({ data: vehicule.serialize() })
   }
 
+  /*
+  Fonction utilitaire pour archiver un véhicule / status = archived
+  */
   private async archiver(ctx: HttpContext, scope: TenantScope) {
     const vehicule = await this.trouver(ctx, scope)
     if (!vehicule) return this.introuvable(ctx, 'Véhicule')
@@ -289,11 +442,17 @@ export default class VehicleController {
   }
 
   /** Cherché DANS le périmètre : un id d'un autre client donne 404, pas une fuite. */
+  /*
+  Fonction utilitaire pour retrouvé un vehicule
+  */
   private trouver(ctx: HttpContext, scope: TenantScope): Promise<VehicleModel | null> {
     const query = VehicleModel.query().where('id', ctx.params.id).whereNull('deleted_at')
     return applyScope(query, scope).first()
   }
 
+  /*
+  Fonction utilitaire NOT_FOUND
+  */
   private introuvable(ctx: HttpContext, ressource: string) {
     return ctx.response.notFound({
       error: { code: 'E_NOT_FOUND', message: `${ressource} introuvable`, details: {} },

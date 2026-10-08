@@ -22,6 +22,7 @@ import type { InvalidReason } from '#domain/telemetry/value_objects'
  * trop stricts.
  */
 
+//seuil de qualité
 export interface QualityThresholds {
   maxHdop: number
   minSatellites: number
@@ -102,6 +103,7 @@ export function evaluateQuality(
 
     // Deux points au même instant, ou antérieur : pas de vitesse calculable.
     // Ce n'est pas une anomalie — c'est un rejeu de Store & Forward.
+    //gestion de deux points de qualités
     if (seconds > 0) {
       const meters = previous.coordinates.distanceTo(reading.coordinates)
       const impliedKph = (meters / seconds) * 3.6

@@ -27,6 +27,7 @@ export interface VehicleSafetyState {
   deviceHasRelay: boolean
 }
 
+//dernier etat connu d'un véhicule
 export interface VehicleStateReader {
   /** Dernier état connu du véhicule. `null` si aucune position n'a été reçue. */
   readSafetyState(vehicleId: string): Promise<VehicleSafetyState | null>
@@ -38,6 +39,7 @@ export interface VehicleStateReader {
  * Le contexte Sécurité n'a pas à connaître la table `devices` : il lui faut
  * seulement l'identifiant que la passerelle comprend.
  */
+//liaison d'un boitier à flespi
 export interface ProviderDevice {
   deviceId: string
   /** `flespi_device_id`, ou `null` si le boîtier n'est pas rattaché. */
@@ -45,11 +47,13 @@ export interface ProviderDevice {
   hasRelay: boolean
 }
 
+//Lecture du boitier par flespi
 export interface DeviceProviderReader {
   readProviderDevice(deviceId: string): Promise<ProviderDevice | null>
 }
 
 /** Sortie vers la passerelle télématique (Flespi en Phase 1). */
+//interface pour l'envoi des commandes vers flespi
 export interface DeviceCommandGateway {
   sendEngineCut(input: {
     deviceId: string

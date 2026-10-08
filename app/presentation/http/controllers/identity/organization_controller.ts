@@ -6,6 +6,9 @@ import UserModel from '#infrastructure/persistence/models/user_model'
 import VehicleModel from '#infrastructure/persistence/models/vehicle_model'
 import DeviceModel from '#infrastructure/persistence/models/device_model'
 import DeviceCommandModel from '#infrastructure/persistence/models/device_command_model'
+import VehicleGroupModel from '#infrastructure/persistence/models/vehicle_group_model'
+import DeviceGroupModel from '#infrastructure/persistence/models/device_group_model'
+import { activityWindowValidator } from '#presentation/http/validators/fleet/stats_validators'
 import { DateTime } from 'luxon'
 import type { LucidModel, ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import { authorizePlatform } from '#presentation/http/support/platform_scope'
@@ -59,6 +62,7 @@ export default class OrganizationController {
       isActive,
     } = await ctx.request.validateUsing(listOrganizationsValidator)
 
+    //fonction utile pour recherches les valeurs des colonnes d'une oragnisation
     const query = OrganizationModel.query().whereNull('deleted_at').orderBy('name')
     if (isActive !== undefined) query.where('is_active', isActive)
     if (search) {
@@ -150,6 +154,7 @@ export default class OrganizationController {
 
   /** GET /api/v1/organizations/:id/users */
   async users(ctx: HttpContext) {
+    //garde fou pour les autorisations et les permissions
     await authorize(ctx, 'viewOrganizations')
     const { page = 1, perPage = 25, status } = await ctx.request.validateUsing(listUsersValidator)
     const organisation = await this.trouver(ctx.params.id)
@@ -225,6 +230,152 @@ export default class OrganizationController {
   }
 
   // =========================================================================
+  //  TABLEAU DE BORD CLIENT — organisation de l'acteur, sans exception
+  // =========================================================================
+
+  /**
+   * GET /api/v1/organization — l'organisation de l'utilisateur connecté.
+   *
+   * Seule lecture d'organisation ouverte au client : la SIENNE, sans
+   * paramètre. Les routes `/organizations/*` restent réservées à l'exploitant.
+   */
+  /*
+  organisation de l'utilisateur courant restreint par le contexte d'execution
+  */
+  async current(ctx: HttpContext) {
+    const organisation = await this.trouver(toExecutionContext(ctx).organizationId)
+    if (!organisation) return this.introuvable(ctx)
+    return ctx.response.ok({ data: organisation.serialize() })
+  }
+
+  /**
+   * GET /api/v1/overview
+   *
+   * Les indicateurs de la page d'accueil du tableau de bord CLIENT, en UN
+   * appel : comptes, véhicules, flottes (groupes), trackers et commandes de
+   * SON organisation. Le détail est sur `/<ressource>/stats`.
+   */
+  /* 
+  chauffeur à ajouter plus tard
+  */
+  async overview(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    const org = toExecutionContext(ctx).organizationId
+    const depuis = DateTime.now().minus({ hours: 24 })
+
+    const compter = async (q: ModelQueryBuilderContract<LucidModel>) => {
+      const ligne = await q.count('* as total').first()
+      return Number(ligne?.$extras.total ?? 0)
+    }
+    const de = <M extends LucidModel>(model: M) =>
+      model
+        .query()
+        .where('organization_id', org) as unknown as ModelQueryBuilderContract<LucidModel>
+    const vivants = <M extends LucidModel>(model: M) => de(model).whereNull('deleted_at')
+
+    const [
+      organisation,
+      utilisateurs,
+      utilisateursActifs,
+      vehicules,
+      vehiculesActifs,
+      vehiculesEquipes,
+      groupesVehicules,
+      groupesBoitiers,
+      boitiers,
+      boitiersMontes,
+      boitiersSilencieux,
+      commandes24h,
+      commandesEchouees24h,
+      commandesEnVol,
+    ] = await Promise.all([
+      this.trouver(org),
+      compter(vivants(UserModel)),
+      compter(vivants(UserModel).where('status', 'active')),
+      compter(vivants(VehicleModel)),
+      compter(vivants(VehicleModel).where('status', 'active')),
+      compter(
+        vivants(VehicleModel).whereExists((sub) =>
+          sub
+            .from('device_assignments as da')
+            .whereRaw('da.vehicle_id = vehicles.id')
+            .whereRaw('upper_inf(da.period)')
+        )
+      ),
+      compter(vivants(VehicleGroupModel)),
+      compter(vivants(DeviceGroupModel)),
+      compter(vivants(DeviceModel)),
+      compter(
+        vivants(DeviceModel).whereExists((sub) =>
+          sub
+            .from('device_assignments as da')
+            .whereRaw('da.device_id = devices.id')
+            .whereRaw('upper_inf(da.period)')
+        )
+      ),
+      compter(
+        vivants(DeviceModel)
+          .whereNot('status', 'decommissioned')
+          .where((q) => q.whereNull('last_seen_at').orWhere('last_seen_at', '<', depuis.toSQL()!))
+      ),
+      compter(de(DeviceCommandModel).where('requested_at', '>=', depuis.toJSDate())),
+      compter(
+        de(DeviceCommandModel)
+          .where('requested_at', '>=', depuis.toJSDate())
+          .whereIn('status', ['failed', 'expired'])
+      ),
+      compter(
+        de(DeviceCommandModel).whereIn('status', [
+          'pending_validation',
+          'approved',
+          'queued',
+          'sent',
+        ])
+      ),
+    ])
+
+    return ctx.response.ok({
+      data: {
+        organization: organisation
+          ? {
+              id: organisation.id,
+              code: organisation.code,
+              name: organisation.name,
+              isActive: organisation.isActive,
+            }
+          : null,
+        users: { total: utilisateurs, active: utilisateursActifs },
+        vehicles: { total: vehicules, active: vehiculesActifs, withDevice: vehiculesEquipes },
+        groups: { vehicles: groupesVehicules, devices: groupesBoitiers },
+        devices: { total: boitiers, assigned: boitiersMontes, silentSince24h: boitiersSilencieux },
+        commands: {
+          last24h: commandes24h,
+          failedLast24h: commandesEchouees24h,
+          inFlight: commandesEnVol,
+        },
+        generatedAt: DateTime.now().toISO(),
+      },
+    })
+  }
+
+  /**
+   * GET /api/v1/stats/activity?days=30
+   *
+   * Séries journalières de l'organisation de l'acteur (positions, véhicules
+   * actifs, trajets, km, commandes, alertes, croissance du parc). Même lecteur
+   * que la route admin, organisation IMPOSÉE.
+   */
+  async dailyActivity(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    const { days = 30 } = await ctx.request.validateUsing(activityWindowValidator)
+    const rapport = await this.activity.daily({
+      days,
+      organizationId: toExecutionContext(ctx).organizationId,
+    })
+    return ctx.response.ok({ data: rapport })
+  }
+
+  // =========================================================================
   //  TABLEAU DE BORD ADMIN
   // =========================================================================
 
@@ -235,6 +386,9 @@ export default class OrganizationController {
    * organisations, comptes, véhicules, boîtiers et commandes des dernières
    * 24 h. Le détail de chaque ressource est sur `/admin/<ressource>/stats`.
    */
+  /*
+  Ajouter chauffeur plustard
+  */
   async overviewAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const depuis = DateTime.now().minus({ hours: 24 })
@@ -327,6 +481,7 @@ export default class OrganizationController {
    * tableau comparatif des clients (4 requêtes groupées, quel que soit le
    * nombre d'organisations).
    */
+  /* à ajouter dans stats la liste des chauffeurs */
   async statsAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
 
@@ -363,7 +518,7 @@ export default class OrganizationController {
   }
 
   // -------------------------------------------------------------------------
-
+  /* Fonction utilitaire pour trouvé l'id d'une organisation */
   /** Le format uuid de `:id` est garanti par le matcher de route. */
   private trouver(id: string): Promise<OrganizationModel | null> {
     return OrganizationModel.query().where('id', id).whereNull('deleted_at').first()

@@ -17,7 +17,7 @@
  *
  * Aucune dépendance : ces règles se testent en quelques microsecondes.
  */
-
+//1 - interface ou contrat
 export interface AssignableRole {
   readonly id: string
   readonly code: string
@@ -25,6 +25,7 @@ export interface AssignableRole {
   readonly permissions: readonly string[]
 }
 
+//2 - permissions
 /** Joker absolu : réservé à l'exploitant de la plateforme. */
 export const PLATFORM_WILDCARD = '*'
 
@@ -40,6 +41,7 @@ export const ORGANIZATION_OWNER_ROLE = 'admin'
  *   covers(['vehicle:read'], 'vehicle:*')  → false  (le joker vaut plus que l'action)
  *   covers(['vehicle:*'], '*')             → false
  */
+//3 - Gestions des permissions
 export function covers(granted: readonly string[], required: string): boolean {
   if (granted.includes(PLATFORM_WILDCARD)) return true
   if (required === PLATFORM_WILDCARD) return false
@@ -50,6 +52,7 @@ export function covers(granted: readonly string[], required: string): boolean {
 }
 
 /** Habilitations du rôle que l'acteur ne détient pas. Vide = attribution permise. */
+//4 - permissions manquantes
 export function missingPermissions(
   actorPermissions: readonly string[],
   role: AssignableRole
@@ -57,11 +60,13 @@ export function missingPermissions(
   return role.permissions.filter((p) => !covers(actorPermissions, p))
 }
 
+//5 - porté ou étendue du rôle dans l'organisation
 /** Règle ① — le rôle est-il utilisable dans l'organisation cible ? */
 export function isRoleInScope(role: AssignableRole, targetOrganizationId: string): boolean {
   return role.organizationId === null || role.organizationId === targetOrganizationId
 }
 
+//6 - L'acteur ou l'utilisateur opère t'il au niveau de la plateforme
 /** L'acteur opère-t-il au niveau plateforme (toutes organisations) ? */
 export function isPlatformOperator(actorPermissions: readonly string[]): boolean {
   return actorPermissions.includes(PLATFORM_WILDCARD)

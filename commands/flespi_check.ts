@@ -44,9 +44,11 @@ export default class FlespiCheck extends BaseCommand {
       return
     }
 
+    //appel des instances pour les injections des commandes
     const channels = await this.app.container.make(FlespiChannelGateway)
     const devices = await this.app.container.make(FlespiDeviceGateway)
     const protocols = await this.app.container.make(FlespiProtocolGateway)
+    /* gateways result */
     let bloquant = false
     const ko = (m: string) => {
       bloquant = true

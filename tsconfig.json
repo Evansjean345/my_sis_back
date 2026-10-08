@@ -2,7 +2,9 @@
   "extends": "@adonisjs/tsconfig/tsconfig.app.json",
   "compilerOptions": {
     "rootDir": "./",
-    "jsx": "react",
-    "outDir": "./build"
+    "outDir": "./build",
+    "module": "NodeNext",
+    "resolveJsonModule": true,
+    "esModuleInterop": true
   }
 }

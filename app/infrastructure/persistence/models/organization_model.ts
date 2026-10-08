@@ -20,6 +20,7 @@ export default class OrganizationModel extends BaseModel {
   @column() declare currency: string
   @column({ columnName: 'is_active' }) declare isActive: boolean
 
+  //paramètres optionel à definir
   /** jsonb : le pilote pg le relit en objet ; on le sérialise à l'écriture. */
   @column({ prepare: (value: unknown) => JSON.stringify(value ?? {}) })
   declare settings: Record<string, unknown>

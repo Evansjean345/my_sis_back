@@ -12,6 +12,8 @@
  * mois, une lecture non bornée balaierait tout l'historique.
  */
 
+/*
+NB : ajouter la gestion des chauffeurs et des alertes , plus des soldes plus tard , et des types de comptes  */
 export interface ActivityQuery {
   /** Nombre de jours, aujourd'hui inclus. */
   days: number

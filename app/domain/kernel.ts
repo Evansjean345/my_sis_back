@@ -29,10 +29,12 @@ export abstract class Identifier<T extends string = string> {
     }
   }
 
+  //fonction pour vérifier les uuid
   static isUuid(value: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
   }
 
+  //fonction pour vérifier si nous n'avons pas deux identifiants uniques
   equals(other?: Identifier<T>): boolean {
     return other instanceof Identifier && this.value === other.value
   }
@@ -53,11 +55,13 @@ export abstract class Identifier<T extends string = string> {
  * Objet-valeur : immuable, sans identité, comparé par valeur.
  * La validation se fait dans le constructeur — un VO existant est toujours valide.
  */
+//pattern de construction pour un objet indefini
 export abstract class ValueObject<T extends Record<string, unknown>> {
   protected constructor(protected readonly props: T) {
     Object.freeze(this.props) // immuable
   }
 
+  //fonction pour vérifier le type de l'objet
   equals(other?: ValueObject<T>): boolean {
     if (other === undefined || other === null) return false
     if (other.constructor !== this.constructor) return false
@@ -80,10 +84,12 @@ export abstract class BaseDomainEvent implements DomainEvent {
   readonly occurredAt: Date
 
   protected constructor(
+    //proprieté de l'évènement
     public readonly eventName: string,
     public readonly aggregateId: string,
     public readonly payload: Record<string, unknown>
   ) {
+    // la date de l'évènement
     this.occurredAt = new Date()
   }
 }
@@ -91,7 +97,7 @@ export abstract class BaseDomainEvent implements DomainEvent {
 // ---------------------------------------------------------------------------
 // Entité et racine d'agrégat
 // ---------------------------------------------------------------------------
-
+//renvoi l'id de l'entité
 export abstract class Entity<TId extends Identifier> {
   constructor(public readonly id: TId) {}
 
@@ -107,19 +113,23 @@ export abstract class Entity<TId extends Identifier> {
  * frontière transactionnelle. Les événements accumulés ici sont publiés par
  * l'Unit of Work APRÈS le commit (via l'outbox), jamais pendant.
  */
+//unité de travail géreant tous les évènements du domain
 export abstract class AggregateRoot<TId extends Identifier> extends Entity<TId> {
   #domainEvents: DomainEvent[] = []
 
+  //ajouter un évènement
   protected addDomainEvent(event: DomainEvent): void {
     this.#domainEvents.push(event)
   }
 
+  //évènements tirés ou extrait du domain
   pullDomainEvents(): DomainEvent[] {
     const events = [...this.#domainEvents]
     this.#domainEvents = []
     return events
   }
 
+  //vérfier si le domain a effectué des évènements
   get hasDomainEvents(): boolean {
     return this.#domainEvents.length > 0
   }
@@ -164,20 +174,25 @@ export function unwrap<T, E extends DomainError>(result: Result<T, E>): T {
  * Erreur métier. `code` est stable et documenté : il sert de contrat d'API
  * et de clé de traduction. Le message est destiné aux humains, jamais parsé.
  */
+//Class traitant les erreurs du domaine
 export abstract class DomainError {
+  //code d'erreur et status
   abstract readonly code: string
   abstract readonly httpStatus: number
 
+  //message et details de l'erreur
   protected constructor(
     readonly message: string,
     readonly details: Record<string, unknown> = {}
   ) {}
 
+  //renvoyé l'erreur en json
   toJSON() {
     return { code: this.code, message: this.message, details: this.details }
   }
 }
 
+//violation des règles métier
 export class BusinessRuleViolation extends DomainError {
   readonly code: string
   readonly httpStatus = 422
@@ -188,6 +203,7 @@ export class BusinessRuleViolation extends DomainError {
   }
 }
 
+//erreur renvoyant une ressource introuvable
 export class NotFoundError extends DomainError {
   readonly code = 'E_NOT_FOUND'
   readonly httpStatus = 404
@@ -197,6 +213,7 @@ export class NotFoundError extends DomainError {
   }
 }
 
+//action non autorisée
 export class ForbiddenError extends DomainError {
   readonly code = 'E_FORBIDDEN'
   readonly httpStatus = 403
@@ -206,6 +223,7 @@ export class ForbiddenError extends DomainError {
   }
 }
 
+//requete ne pouvant etre traitée
 export class ConflictError extends DomainError {
   readonly code = 'E_CONFLICT'
   readonly httpStatus = 409
@@ -229,6 +247,7 @@ export class ConflictError extends DomainError {
  * `raw` est typé `unknown` : le domaine sait qu'une transaction existe, il
  * ignore totalement que c'est un client Lucid.
  */
+//portée transactionnelle gérée par la base de donée
 export interface TransactionScope {
   readonly raw: unknown
   /** Collecte les événements d'un agrégat pour publication post-commit. */

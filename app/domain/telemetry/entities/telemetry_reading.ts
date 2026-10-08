@@ -18,6 +18,7 @@ import {
  * Forme destinée à la persistance. Ce que le dépôt écrit dans `positions`.
  * Volontairement plat : c'est un enregistrement, pas un objet à comportement.
  */
+//contrat/interface destinnée à la persistance des données pour la table positions
 export interface NormalizedReading {
   organizationId: string
   deviceId: string

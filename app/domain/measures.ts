@@ -13,6 +13,7 @@ import { ValueObject, Ok, Err, BusinessRuleViolation, type Result } from '#domai
  * C'est ce qui rend impossible de comparer par erreur des km/h à des m/s.
  */
 
+//mesure invalide - violation des règles metier (code -422 - syntaxe incorrecte)
 export class InvalidMeasureError extends BusinessRuleViolation {
   constructor(message: string, details: Record<string, unknown> = {}) {
     super('E_INVALID_MEASURE', message, details)
@@ -23,6 +24,7 @@ export class InvalidMeasureError extends BusinessRuleViolation {
 // Vitesse
 // ---------------------------------------------------------------------------
 
+//limitation de vitesse
 export class Speed extends ValueObject<{ kph: number }> {
   static readonly MAX_KPH = 400 //kilomters per hours
 
@@ -50,7 +52,7 @@ export class Speed extends ValueObject<{ kph: number }> {
     return this.props.kph
   }
 
-  //motor position switch/sensor
+  //vitesse moyenne du piston (Mean Piston Speed)
   get mps(): number {
     return this.props.kph / 3.6
   }
@@ -139,6 +141,7 @@ export class Coordinates extends ValueObject<{ latitude: number; longitude: numb
 // ---------------------------------------------------------------------------
 // Cap
 // ---------------------------------------------------------------------------
+//cap allant de 0 à 360°
 export class Heading extends ValueObject<{ degrees: number }> {
   private constructor(degrees: number) {
     super({ degrees })
@@ -223,10 +226,12 @@ export class GpsQuality extends ValueObject<{
     return this.props.hdop
   }
 
+  //nombre de signals satellites
   get satellites(): number | null {
     return this.props.satellites
   }
 
+  //renvoie true ou false
   get isValidFix(): boolean {
     return this.props.isValidFix
   }

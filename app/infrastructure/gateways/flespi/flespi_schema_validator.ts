@@ -18,6 +18,7 @@ import type { JsonSchema } from '#infrastructure/gateways/flespi/flespi_types'
 export function validateAgainstSchema(valeur: unknown, schema: JsonSchema, chemin = ''): string[] {
   const ici = chemin || 'properties'
 
+  //erreur renvoyant aucune correspondance
   if (schema.anyOf?.length) {
     const essais = schema.anyOf.map((s) => validateAgainstSchema(valeur, s, chemin))
     if (essais.some((e) => e.length === 0)) return []
@@ -30,14 +31,18 @@ export function validateAgainstSchema(valeur: unknown, schema: JsonSchema, chemi
     return [`${ici} : ne correspond à aucune variante (${titres || 'anyOf'})`, ...meilleure]
   }
 
+  //erreur indiquant que l'une des propriétés à été mal formulé
   if (schema.const !== undefined && valeur !== schema.const) {
     return [`${ici} doit valoir ${JSON.stringify(schema.const)}`]
   }
+  //erreur indiquant que l'une des propriétes doit avoir une valeur précise
   if (schema.enum && !schema.enum.includes(valeur)) {
     return [`${ici} doit être l'une des valeurs ${JSON.stringify(schema.enum)}`]
   }
 
+  //condition traitant les cas d'erreurs ou les propiétes JSONschema attendu par flespi ne sont pas respectées
   switch (schema.type) {
+    //cas traitant les erreurs liées à un object
     case 'object': {
       if (typeof valeur !== 'object' || valeur === null || Array.isArray(valeur)) {
         return [`${ici} doit être un objet`]
@@ -60,6 +65,7 @@ export function validateAgainstSchema(valeur: unknown, schema: JsonSchema, chemi
       }
       return erreurs
     }
+    //cas traitant les erreurs liées à une chaine de caractère
     case 'string': {
       if (typeof valeur !== 'string') return [`${ici} doit être une chaîne`]
       const e: string[] = []
@@ -77,6 +83,7 @@ export function validateAgainstSchema(valeur: unknown, schema: JsonSchema, chemi
       }
       return e
     }
+    //cas traitant les erreurs liées types numériques
     case 'integer':
     case 'number': {
       if (typeof valeur !== 'number' || !Number.isFinite(valeur))

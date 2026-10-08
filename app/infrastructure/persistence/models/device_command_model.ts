@@ -9,6 +9,9 @@ import { DateTime } from 'luxon'
  * C'est ce qui permet de remplacer Lucid sans toucher au métier — et surtout
  * d'empêcher que des règles de sécurité finissent dans un hook de modèle.
  */
+/*
+NB : la table la plus succeptible de changer vu que la double validation a été retiré
+*/
 export default class DeviceCommandModel extends BaseModel {
   static table = 'device_commands'
 
@@ -36,6 +39,7 @@ export default class DeviceCommandModel extends BaseModel {
   @column()
   declare origin: string
 
+  //à vérifier le statut de la colonne si elle doit etre supprimée
   @column({ columnName: 'policy_id' })
   declare policyId: string | null
 
@@ -57,9 +61,11 @@ export default class DeviceCommandModel extends BaseModel {
   @column({ columnName: 'ignition_at_request' })
   declare ignitionAtRequest: boolean | null
 
+  //toujours marqué à false
   @column({ columnName: 'requires_validation' })
   declare requiresValidation: boolean
 
+  //par le systeme ou null par personne validation automatique
   @column({ columnName: 'validated_by' })
   declare validatedBy: string | null
 

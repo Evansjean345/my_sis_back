@@ -11,7 +11,7 @@
  * directe des boîtiers — on écrit un second analyseur et rien d'autre ne bouge.
  */
 export interface TelemetryFrame {
-  /** Identifiant du boîtier tel que transmis (IMEI, éventuellement préfixé). */
+  /** Identifiant du boîtier tel que transmis (IMEI). */
   ident: string
   /** Clé d'idempotence de la trame côté source. */
   externalId: string

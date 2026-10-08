@@ -17,6 +17,7 @@ export class TripAlreadyClosedError extends DomainError {
   }
 }
 
+//position erroné (un point avant)
 export class OutOfOrderPositionError extends DomainError {
   readonly code = 'E_OUT_OF_ORDER_POSITION'
   readonly httpStatus = 422
@@ -180,6 +181,7 @@ export class Trip extends AggregateRoot<TripId> {
      * comme trajet fausserait les statistiques d'exploitation — on le marque
      * `orphan` plutôt que de le supprimer, pour garder la trace du contact.
      */
+    //trajet orphelin /ignitition on/of sans déplacement
     if (this.props.distance.meters < input.minDistanceMeters) {
       this.props.status = 'orphan'
     }
@@ -198,6 +200,7 @@ export class Trip extends AggregateRoot<TripId> {
   }
 
   /** Trajet resté ouvert au-delà du délai maximal : le contact OFF s'est perdu. */
+  //trajet resté ouvert au dela d'un seuil de 120s/suppimé
   isStale(now: Date, maxDurationHours: number): boolean {
     if (this.props.status !== 'open') return false
     const hours = (now.getTime() - this.props.lastPointAt.getTime()) / 3_600_000

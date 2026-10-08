@@ -10,6 +10,7 @@ import type { FieldContext } from '@vinejs/vine/types'
  * qu'en 409 « contrainte d'intégrité ».
  */
 
+//format universelle des numéros de téléphone
 const E164 = /^\+[1-9]\d{7,14}$/
 
 /** Fuseau IANA réellement connu du moteur (`Africa/Abidjan`, `Europe/Paris`…). */

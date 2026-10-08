@@ -12,7 +12,7 @@ import {
   DeviceNotEquippedError,
   ImmobilizationDisabledError,
   NoPositionError,
-  StalePositionError,
+  // StalePositionError,
 } from '#domain/security/errors'
 
 export interface DispatchEngineCommandInput {
@@ -110,7 +110,7 @@ export class DispatchEngineCommand implements UseCase<
             return Err(new NoPositionError(command.vehicleId?.value ?? input.commandId))
           }
 
-          const age = Math.floor((now.getTime() - state.recordedAt.getTime()) / 1000)
+          //const age = Math.floor((now.getTime() - state.recordedAt.getTime()) / 1000)
           //test en supprimant le delai
           /*
           if (age > this.settings.maxPositionAgeSeconds) {

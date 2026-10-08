@@ -52,10 +52,22 @@ export default class UserController {
     private readonly roleAssignment: RoleAssignment
   ) {}
 
-  /** GET /api/v1/users */
+  /**
+   * GET /api/v1/users?status=&roleId=&search=&page=&perPage=
+   *
+   * Cloisonné à l'organisation de l'acteur. Chaque ligne porte son `role`
+   * (code, nom) : la liste s'affiche sans requête par ligne.
+   */
+  /* Fonction restreinte à l'execution contexte renvoyant les users d'une organisation d'un admin */
   async index(ctx: HttpContext) {
     await authorize(ctx, 'manageUsers')
-    const { page = 1, perPage = 25, status } = await ctx.request.validateUsing(listUsersValidator)
+    const {
+      page = 1,
+      perPage = 25,
+      status,
+      roleId,
+      search,
+    } = await ctx.request.validateUsing(listUsersValidator)
     const org = toExecutionContext(ctx).organizationId
 
     const query = UserModel.query()
@@ -63,12 +75,40 @@ export default class UserController {
       .whereNull('deleted_at')
       .orderBy('full_name')
     if (status) query.where('status', status)
+    if (roleId) query.where('role_id', roleId)
+    if (search) {
+      query.where((q) =>
+        q.whereILike('full_name', `%${search}%`).orWhereILike('email', `%${search}%`)
+      )
+    }
 
     const resultat = await query.paginate(page, Math.min(perPage, 100))
-    return ctx.response.ok(resultat.toJSON())
+    const roles = await this.rolesDe(resultat.all())
+    return ctx.response.ok({
+      meta: resultat.getMeta(),
+      data: resultat.all().map((u) => ({ ...u.serialize(), role: roles[u.roleId] ?? null })),
+    })
+  }
+
+  /** GET /api/v1/users/stats — comptes de l'organisation par statut et par rôle. */
+  /* définir après avoir lu stats */
+  async stats(ctx: HttpContext) {
+    await authorize(ctx, 'manageUsers')
+    return this.statistiques(ctx, ownScope(ctx))
+  }
+
+  /**
+   * POST /api/v1/users/:id/activate — lève une suspension dans l'organisation.
+   * Remet aussi à zéro le compteur d'échecs et le verrouillage.
+   */
+  /* Fonction permettant d'activer un compte après son vérrouillage */
+  async activate(ctx: HttpContext) {
+    await authorize(ctx, 'manageUsers')
+    return this.activer(ctx, ownScope(ctx))
   }
 
   /** GET /api/v1/users/:id */
+  //Fonction permettant de retrouver un user d'une organisation
   async show(ctx: HttpContext) {
     await authorize(ctx, 'manageUsers')
     return this.afficher(ctx, ownScope(ctx))
@@ -149,6 +189,7 @@ export default class UserController {
    * affiche une liste inter-clients sans requête supplémentaire.
    */
   async indexAll(ctx: HttpContext) {
+    //joker
     await authorizePlatform(ctx)
     const {
       page = 1,
@@ -190,30 +231,7 @@ export default class UserController {
   async statsAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const { organizationId } = await ctx.request.validateUsing(adminOrganizationFilterValidator)
-
-    const base = () => {
-      const q = UserModel.query().whereNull('deleted_at')
-      if (organizationId) q.where('organization_id', organizationId)
-      return q
-    }
-
-    const [parStatut, parOrganisation] = await Promise.all([
-      base().select('status').count('* as total').groupBy('status'),
-      base().select('organization_id').count('* as total').groupBy('organization_id'),
-    ])
-    const compteurs = countsBy(parStatut, 'status')
-    const organisations = await organizationsOf(parOrganisation.map((l) => l.organizationId))
-
-    return ctx.response.ok({
-      data: {
-        total: Object.values(compteurs).reduce((a, b) => a + b, 0),
-        byStatus: compteurs,
-        byOrganization: parOrganisation.map((l) => ({
-          organization: organisations[l.organizationId] ?? { id: l.organizationId },
-          total: Number(l.$extras.total ?? 0),
-        })),
-      },
-    })
+    return this.statistiques(ctx, { organizationId: organizationId ?? null })
   }
 
   /** GET /api/v1/admin/users/:id */
@@ -255,14 +273,7 @@ export default class UserController {
    */
   async activateAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
-    const utilisateur = await this.trouver(ctx, PLATFORM_SCOPE)
-    if (!utilisateur) return this.introuvable(ctx)
-
-    utilisateur.status = 'active'
-    utilisateur.failedAttempts = 0
-    utilisateur.lockedUntil = null
-    await utilisateur.save()
-    return ctx.response.ok({ data: utilisateur.serialize() })
+    return this.activer(ctx, PLATFORM_SCOPE)
   }
 
   /** DELETE /api/v1/admin/users/:id — suppression logique. */
@@ -275,6 +286,69 @@ export default class UserController {
   //  Implémentations partagées client / admin : seul le périmètre change.
   // -------------------------------------------------------------------------
 
+  /** Compteurs par statut, par rôle et par organisation. */
+  private async statistiques(ctx: HttpContext, scope: TenantScope) {
+    const base = () => applyScope(UserModel.query().whereNull('deleted_at'), scope)
+
+    const [parStatut, parRole, parOrganisation, connectes7j] = await Promise.all([
+      base().select('status').count('* as total').groupBy('status'),
+      base().select('role_id').count('* as total').groupBy('role_id'),
+      base().select('organization_id').count('* as total').groupBy('organization_id'),
+      base()
+        .where('last_login_at', '>=', DateTime.now().minus({ days: 7 }).toSQL()!)
+        .count('* as total')
+        .first(),
+    ])
+    const compteurs = countsBy(parStatut, 'status')
+    const organisations = await organizationsOf(parOrganisation.map((l) => l.organizationId))
+    const roleIds = parRole.map((l) => l.roleId)
+    const roles = roleIds.length
+      ? await RoleModel.query().whereIn('id', roleIds).select('id', 'code', 'name')
+      : []
+    const roleParId = Object.fromEntries(roles.map((r) => [r.id, r]))
+
+    return ctx.response.ok({
+      data: {
+        total: Object.values(compteurs).reduce((a, b) => a + b, 0),
+        byStatus: compteurs,
+        activeLast7Days: Number(connectes7j?.$extras.total ?? 0),
+        byRole: parRole.map((l) => ({
+          role: roleParId[l.roleId]
+            ? { id: l.roleId, code: roleParId[l.roleId].code, name: roleParId[l.roleId].name }
+            : { id: l.roleId },
+          total: Number(l.$extras.total ?? 0),
+        })),
+        byOrganization: parOrganisation.map((l) => ({
+          organization: organisations[l.organizationId] ?? { id: l.organizationId },
+          total: Number(l.$extras.total ?? 0),
+        })),
+      },
+    })
+  }
+
+  //fonction renvoyant tous les utilisateurs actifs
+  private async activer(ctx: HttpContext, scope: TenantScope) {
+    const utilisateur = await this.trouver(ctx, scope)
+    if (!utilisateur) return this.introuvable(ctx)
+
+    utilisateur.status = 'active'
+    utilisateur.failedAttempts = 0
+    utilisateur.lockedUntil = null
+    await utilisateur.save()
+    return ctx.response.ok({ data: utilisateur.serialize() })
+  }
+
+  /** `{ roleId: { id, code, name } }` pour une page d'utilisateurs — une requête. */
+  //fonction renvoyant les roles des utilisateurs
+  private async rolesDe(utilisateurs: UserModel[]) {
+    //renvoyant les utilisateurs sans doublon (Set)
+    const ids = [...new Set(utilisateurs.map((u) => u.roleId))]
+    if (ids.length === 0) return {} as Record<string, { id: string; code: string; name: string }>
+    const roles = await RoleModel.query().whereIn('id', ids).select('id', 'code', 'name')
+    return Object.fromEntries(roles.map((r) => [r.id, { id: r.id, code: r.code, name: r.name }]))
+  }
+
+  //fonction renvoyant les utilisateurs , leurs roles , leurs permissions ainsi que leur permission
   private async afficher(ctx: HttpContext, scope: TenantScope) {
     const utilisateur = await this.trouver(ctx, scope)
     if (!utilisateur) return this.introuvable(ctx)
@@ -296,6 +370,7 @@ export default class UserController {
     })
   }
 
+  //fonction permettant de créer user dans le context de son organisation
   private async creer(ctx: HttpContext, organizationId: string) {
     const payload = await ctx.request.validateUsing(createUserValidator)
 
@@ -312,6 +387,7 @@ export default class UserController {
     return ctx.response.created({ data: result.value })
   }
 
+  //fonction update pour un role
   private async modifier(ctx: HttpContext, scope: TenantScope) {
     const payload = await ctx.request.validateUsing(updateUserValidator)
     const utilisateur = await this.trouver(ctx, scope)
@@ -390,6 +466,7 @@ export default class UserController {
    * bord), enrichi du drapeau `assignable` : calculé par la même règle que
    * l'écriture, il permet de griser `super_admin` pour un administrateur.
    */
+  //fonction gérant les roles d'un user dans le conexte de son organisation ainsi que ses permisisons
   async roles(ctx: HttpContext) {
     await authorize(ctx, 'manageUsers')
     const org = toExecutionContext(ctx).organizationId
@@ -420,6 +497,7 @@ export default class UserController {
   // -------------------------------------------------------------------------
 
   /** Cherché DANS le périmètre : un id d'un autre client donne 404, pas une fuite. */
+  /* fonction renvoyant un user par son ID */
   private async trouver(ctx: HttpContext, scope: TenantScope): Promise<UserModel | null> {
     const query = UserModel.query().where('id', ctx.params.id).whereNull('deleted_at')
     return applyScope(query, scope).first()

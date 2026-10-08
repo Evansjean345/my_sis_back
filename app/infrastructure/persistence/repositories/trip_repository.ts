@@ -45,6 +45,7 @@ export class LucidTripRepository implements TripRepository {
   async findOpenByVehicle(vehicleId: VehicleId, tx?: TransactionScope): Promise<Trip | null> {
     const c = client(tx)
 
+    //gestion d'un trajet via pg_advisory_xact_lock(evite d'ouvrir deux trajets pour un vehiculeId)
     if (tx) {
       await c.rawQuery(`SELECT pg_advisory_xact_lock(hashtextextended(:v, 0))`, {
         v: vehicleId.value,
@@ -62,6 +63,9 @@ export class LucidTripRepository implements TripRepository {
   async save(trip: Trip, tx?: TransactionScope): Promise<void> {
     const s = trip.snapshot()
 
+    /**
+     *backend tips //injection SQL pour gestions des trajets via les fonctions POSTGIS et SELECTION DES COLONNES puis ecrasemnt des valeurs proposées
+     */
     await client(tx).rawQuery(
       `INSERT INTO trips (
          id, organization_id, vehicle_id, device_id, status,

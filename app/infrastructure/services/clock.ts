@@ -20,6 +20,7 @@ export class FixedClock implements Clock {
     return this.current
   }
 
+  //gestion des millisecondes
   advance(ms: number): void {
     this.current = new Date(this.current.getTime() + ms)
   }

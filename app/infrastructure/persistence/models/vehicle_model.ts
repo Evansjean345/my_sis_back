@@ -15,6 +15,7 @@ export default class VehicleModel extends BaseModel {
   @column({ columnName: 'vehicle_type' }) declare vehicleType: string
   @column() declare color: string | null
   @column() declare status: string
+  //gestion des kilomètres Totale d'un véhicule depuis sa sortie d'une
   @column({ columnName: 'odometer_km' }) declare odometerKm: number
   @column({ columnName: 'speed_limit_kph' }) declare speedLimitKph: number | null
   @column({ columnName: 'immobilization_enabled' }) declare immobilizationEnabled: boolean

@@ -4,11 +4,13 @@ import type { TelemetryTransport } from '#application/telemetry/ports'
 
 export interface MqttTransportConfig {
   host: string
+  //a changer en production
   port: number
   tls: boolean
   /** STABLE d'un démarrage à l'autre : la session persistante y est attachée. */
   clientId: string
   /** flespi : username = jeton, mot de passe vide. */
+  //préferable de laisser vide
   username?: string
   password?: string
   topics: string[]
@@ -48,8 +50,10 @@ export interface MqttTransportConfig {
  * verrou mortel), 53 (ressources), 57/58 (arrêt administrateur) : la base
  * revient, et le broker garde la suite dans la session.
  */
+//Code de standarisation SQL
 const SQLSTATE_DEFINITIF = ['42', '3F', '3D', '22', '23', '28']
 
+//fonction pour gérer le code d'erreur definitif du protocol mqtt
 function erreurDefinitive(err: unknown): string | null {
   if (typeof err !== 'object' || err === null || !('code' in err)) return null
   const code = String((err as { code: unknown }).code)
@@ -123,11 +127,13 @@ export class MqttTelemetryTransport implements TelemetryTransport {
    *   du broker et sera rejoué après correction. L'appelant doit arrêter le
    *   worker — continuer reviendrait à perdre silencieusement la télémétrie.
    */
+  //souscription au protocol mqtt
   async subscribe(
     handler: (raw: string, topic: string) => Promise<void>,
     onFatal?: (err: Error) => void
   ): Promise<void> {
     this.#panne = onFatal ?? null
+    //gestion de l'url
     const url = `${this.config.tls ? 'mqtts' : 'mqtt'}://${this.config.host}:${this.config.port}`
 
     const options: IClientOptions = {
@@ -139,13 +145,16 @@ export class MqttTelemetryTransport implements TelemetryTransport {
       reconnectPeriod: this.config.reconnectPeriodMs,
       connectTimeout: this.config.connectTimeoutMs,
       resubscribe: true,
-      keepalive: 60,
+      keepalive: 60, //temps que le protocol est actif
       properties: {
         sessionExpiryInterval: this.config.sessionExpirySeconds,
         receiveMaximum: Math.max(1, Math.min(this.config.receiveMaximum, 65535)),
       },
     }
 
+    /*___________________________________________________________________________________________ */
+
+    //fonction de resolution pour le protocol mqtt s'il est resolu ou non
     await new Promise<void>((resolve, reject) => {
       let premiereConnexion = true
       const client = mqtt.connect(url, options)
@@ -154,10 +163,11 @@ export class MqttTelemetryTransport implements TelemetryTransport {
       client.handleMessage = (packet: IPublishPacket, done: (e?: Error) => void) => {
         if (this.#arretDemande) return // ni traitement ni acquittement : rejoué à la reprise
         this.#recus += 1
-        const raw = packet.payload.toString('utf8')
+        const raw = packet.payload.toString('utf8') //convention utf8 à utiliser
         void this.traiter(handler, packet.topic, raw, done)
       }
 
+      //fonction de connection broker (session par flespi)
       client.on('connect', (connack) => {
         logger.info(
           {
@@ -219,6 +229,7 @@ export class MqttTelemetryTransport implements TelemetryTransport {
    * indisponible) et rendre la main normalement pour une trame définitivement
    * inexploitable (déjà journalisée par lui) — sinon elle bloquerait le flux.
    */
+  //fonction de traitement pour un protocol mqtt
   private async traiter(
     handler: (raw: string, topic: string) => Promise<void>,
     topic: string,
@@ -288,12 +299,12 @@ export class MqttTelemetryTransport implements TelemetryTransport {
     if (!client) return
 
     logger.info({ enCours: this.#enCours }, '[mqtt] arrêt demandé')
-    const echeance = Date.now() + 15_000
+    const echeance = Date.now() + 15_000 //gestion de l'echeance pour un message en cours
     while (this.#enCours > 0 && Date.now() < echeance) {
       await new Promise((r) => setTimeout(r, 100))
     }
     await new Promise<void>((resolve) => client.end(false, {}, () => resolve()))
-    this.#client = null
+    this.#client = null //retourne null si le protocol est deconnecté
     logger.info('[mqtt] déconnecté')
   }
 }
@@ -301,6 +312,7 @@ export class MqttTelemetryTransport implements TelemetryTransport {
 /**
  * Transport en MÉMOIRE — pour les tests.
  */
+//fonction pour les tests
 export class InMemoryTelemetryTransport implements TelemetryTransport {
   #handler: ((raw: string, topic: string) => Promise<void>) | null = null
   #connecte = false

@@ -1,4 +1,6 @@
+//domain
 import { AggregateRoot, Ok, Err, type Result } from '#domain/kernel'
+//objets de sécurité
 import {
   type ActorId,
   type CommandId,
@@ -11,6 +13,7 @@ import {
   type CommandStatus,
   type CommandType,
 } from '#domain/security/value_objects'
+//erreur
 import {
   CommandExpiredError,
   InvalidTransitionError,
@@ -18,6 +21,7 @@ import {
   UnsafeSpeedError,
   VehicleInMotionError,
 } from '#domain/security/errors'
+//evenements
 import {
   ImmobilizationRequested,
   ImmobilizationValidated,
@@ -27,6 +31,7 @@ import {
   CommandFailed,
 } from '#domain/security/events'
 
+//propriété des commandes du tracker (certaines proprietés à supprimer)
 interface DeviceCommandProps {
   organizationId: string
   deviceId: DeviceId
@@ -35,14 +40,14 @@ interface DeviceCommandProps {
   status: CommandStatus
   reason: Reason
   origin: CommandOrigin
-  requestedBy: ActorId | null
-  requestedAt: Date
+  requestedBy: ActorId | null //à supprimer plus de doucble validation
+  requestedAt: Date //à supprimer plus de double validation
   safetySpeedLimit: Speed
   speedAtRequest: Speed | null
   ignitionAtRequest: boolean | null
   requiresValidation: boolean
-  validatedBy: ActorId | null
-  validatedAt: Date | null
+  validatedBy: ActorId | null //à supprimer plus de double validation
+  validatedAt: Date | null //à supprimer plus de double validation
   rejectionReason: string | null
   queuedAt: Date | null
   sentAt: Date | null
@@ -107,7 +112,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     ignition: boolean | null
     safetySpeedLimit: Speed
     requiresValidation: boolean
-    ttlMinutes: number
+    ttlMinutes: number //à definir le temps de traitement d'une commande
     now: Date
     policyId?: string | null
     alertId?: string | null
@@ -122,7 +127,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       deviceId: input.deviceId,
       vehicleId: input.vehicleId,
       commandType: 'engine_cut', //commande pour couper le moteur
-      status: input.requiresValidation ? 'pending_validation' : 'approved',
+      status: input.requiresValidation ? 'pending_validation' : 'approved', //supprimer la double validation
       reason: input.reason,
       origin: input.origin,
       requestedBy: input.requestedBy,
@@ -146,6 +151,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       alertId: input.alertId ?? null,
     })
 
+    //ajouté l'évènement aud domain
     command.addDomainEvent(
       new ImmobilizationRequested(command.id.value, {
         deviceId: input.deviceId.value,
@@ -153,7 +159,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
         origin: input.origin,
         requestedBy: input.requestedBy?.value ?? null,
         speedAtRequestKph: input.currentSpeed.kph,
-        requiresValidation: input.requiresValidation,
+        requiresValidation: input.requiresValidation, //true ou false
       })
     )
 
@@ -225,6 +231,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
    * validation, le véhicule a pu redémarrer. C'est le scénario réaliste où
    * un contrôle uniquement à la demande serait dangereux.
    */
+  //à supprimer la double validation
   validate(input: { validatedBy: ActorId; currentSpeed: Speed; now: Date }): Result<void> {
     const transition = this.ensureTransition('approved', input.now)
     if (!transition.ok) return transition
@@ -253,6 +260,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //à supprimer (reject par la doucble double validation)
   reject(input: { rejectedBy: ActorId; rejectionReason: string; now: Date }): Result<void> {
     const transition = this.ensureTransition('rejected', input.now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -281,14 +289,17 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
    * rétablissement parce que le véhicule roule laisserait un moteur coupé
    * sur un véhicule lancé : l'inverse du but recherché.
    */
+  //gestion de la mise en cache d'une comamnde sur un véhicule
   queue(input: { currentSpeed: Speed | null; now: Date }): Result<void> {
     const transition = this.ensureTransition('queued', input.now)
     if (!transition.ok) return transition
 
+    //vitesse non reçu et inconnue
     if (this.props.commandType === 'engine_cut') {
       if (!input.currentSpeed) {
         return Err(new UnsafeSpeedError('Vitesse inconnue : coupure moteur refusée'))
       }
+      //vitesse non autorisé pour coupure du moteur <= 5 km/h
       if (!input.currentSpeed.isAtOrBelow(this.props.safetySpeedLimit)) {
         return Err(
           new VehicleInMotionError(input.currentSpeed.kph, this.props.safetySpeedLimit.kph)
@@ -302,6 +313,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //Commande marqué comme envoyée
   markSent(input: { providerCommandId: string; now: Date }): Result<void> {
     const transition = this.ensureTransition('sent', input.now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -320,6 +332,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //commande marqué comme distribuée et envoyée à flespi
   markAcknowledged(now: Date): Result<void> {
     const transition = this.ensureTransition('acknowledged', now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -337,6 +350,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //commande maqrué comme echouée
   markFailed(input: { errorMessage: string; now: Date }): Result<void> {
     const transition = this.ensureTransition('failed', input.now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -355,6 +369,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //commande marqué comme annulé
   cancel(input: { cancelledBy: ActorId | null; now: Date }): Result<void> {
     const transition = this.ensureTransition('cancelled', input.now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -362,6 +377,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //commande marqué comme expirée gestion du TTL
   expire(now: Date): Result<void> {
     const transition = this.ensureTransition('expired', now, { ignoreExpiry: true })
     if (!transition.ok) return transition
@@ -371,6 +387,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
 
   // -------------------------------------------------------------- invariants
 
+  //assurer la transition / changement de l'etat de d'une commande
   private ensureTransition(
     target: CommandStatus,
     now: Date,
@@ -385,32 +402,40 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     return Ok(undefined)
   }
 
+  //expiration de l'etat du commande
   isExpired(now: Date): boolean {
     return now.getTime() > this.props.expiresAt.getTime()
   }
 
   // -------------------------------------------------------------- lecture
 
+  //retrouver le statut d'une commande
   get status(): CommandStatus {
     return this.props.status
   }
+  //l'id du tracker
   get deviceId(): DeviceId {
     return this.props.deviceId
   }
+  //l'id du véhicule
   get vehicleId(): VehicleId | null {
     return this.props.vehicleId
   }
+  //le type de commande / nom système
   get commandType(): CommandType {
     return this.props.commandType
   }
+  //commande demandé par quel user
   get requestedBy(): ActorId | null {
     return this.props.requestedBy
   }
+  //la commande expire quand ?
   get expiresAt(): Date {
     return this.props.expiresAt
   }
 
   /** Projection destinée à la persistance et à la sérialisation HTTP. */
+  //capturation de l'etat de la commande
   snapshot() {
     return {
       id: this.id.value,
@@ -427,8 +452,8 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       speedAtRequestKph: this.props.speedAtRequest?.kph ?? null,
       ignitionAtRequest: this.props.ignitionAtRequest,
       requiresValidation: this.props.requiresValidation,
-      validatedBy: this.props.validatedBy?.value ?? null,
-      validatedAt: this.props.validatedAt,
+      validatedBy: this.props.validatedBy?.value ?? null, //supprimer la double validation
+      validatedAt: this.props.validatedAt, //supprimer la double validation
       rejectionReason: this.props.rejectionReason,
       queuedAt: this.props.queuedAt,
       sentAt: this.props.sentAt,

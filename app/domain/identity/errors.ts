@@ -8,6 +8,7 @@ import { DomainError } from '#domain/kernel'
  * rupture de contrat.
  */
 
+//1 - Erreur Code organisation déjà prise
 export class OrganizationCodeTakenError extends DomainError {
   readonly code = 'E_ORGANIZATION_CODE_TAKEN'
   readonly httpStatus = 409
@@ -17,6 +18,7 @@ export class OrganizationCodeTakenError extends DomainError {
   }
 }
 
+//2 - Erreur organisation Id non trouvée
 export class OrganizationNotFoundError extends DomainError {
   readonly code = 'E_ORGANIZATION_NOT_FOUND'
   readonly httpStatus = 404
@@ -31,6 +33,7 @@ export class OrganizationNotFoundError extends DomainError {
  * première mesure prise lors d'une résiliation ou d'un impayé, elle doit
  * geler le périmètre, pas seulement le masquer.
  */
+//3 - organisation désactivée ne reçoit plus de nouveaux comptes
 export class OrganizationInactiveError extends DomainError {
   readonly code = 'E_ORGANIZATION_INACTIVE'
   readonly httpStatus = 409
@@ -42,6 +45,7 @@ export class OrganizationInactiveError extends DomainError {
   }
 }
 
+//4 - Email déjà associée à un compte
 export class EmailTakenError extends DomainError {
   readonly code = 'E_EMAIL_TAKEN'
   readonly httpStatus = 409
@@ -52,6 +56,7 @@ export class EmailTakenError extends DomainError {
 }
 
 /** Rôle inexistant, ou appartenant à une AUTRE organisation. */
+//5- Rôle inexistant ou appartient à une autre organisation
 export class InvalidRoleError extends DomainError {
   readonly code = 'E_INVALID_ROLE'
   readonly httpStatus = 422
@@ -68,6 +73,7 @@ export class InvalidRoleError extends DomainError {
  * se crée un complice `super_admin`, et franchit ainsi la frontière de
  * cloisonnement entre clients.
  */
+//6 - Ne peut pas attribuer un rôle plus élevé que celui de l'utilisateur connecté
 export class RoleEscalationError extends DomainError {
   readonly code = 'E_ROLE_ESCALATION'
   readonly httpStatus = 403

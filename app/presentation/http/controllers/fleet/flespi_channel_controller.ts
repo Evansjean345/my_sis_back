@@ -38,8 +38,16 @@ export default class FlespiChannelController {
 
   // ------------------------------------------------------------- santé
   /** GET /api/v1/flespi/health — jeton valide ? canal configuré joignable ? */
+  /*
+  Obtenir l'etat d'un canal de transmission flespi 
+  Gérer le code de sisbm config pour le canal et ajouter un deuxième canal de transmission pour 
+ la flotte de boitiers MV730
+ et concox Jt
+  */
+  //correction des autorisations viewDevices pour les cannaux de transmission
   async health(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const api = await this.devices.healthcheck()
 
     let channel: unknown = null
@@ -66,8 +74,13 @@ export default class FlespiChannelController {
 
   // ------------------------------------------------------------- catalogue
   /** GET /api/v1/flespi/protocols?search=micodus */
+  /*
+  Obtenir le protocole d'un canal correction de 
+  l'autorisation viewVehicles pour les cannaux de transmission
+  */
   async protocols(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const gw = this.catalogue
     const search = String(ctx.request.input('search', '')).toLowerCase()
     const liste = await gw.protocols()
@@ -84,7 +97,8 @@ export default class FlespiChannelController {
 
   /** GET /api/v1/flespi/protocols/:protocol/device-types?search=mv730 */
   async deviceTypes(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const gw = this.catalogue
     const protocole = await gw.protocol(ctx.params.protocol)
     if (!protocole) {
@@ -110,7 +124,8 @@ export default class FlespiChannelController {
 
   /** GET /api/v1/flespi/protocols/:protocol/device-types/:typeId — schéma complet (ident, commandes). */
   async deviceType(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const gw = this.catalogue
     const protocole = await gw.protocol(ctx.params.protocol)
     if (!protocole) return this.introuvable(ctx, 'Protocole flespi inconnu')
@@ -121,8 +136,12 @@ export default class FlespiChannelController {
 
   // ------------------------------------------------------------- CRUD canal
   /** GET /api/v1/flespi/channels */
+  /*
+  Voir les cannaux disponibles
+  */
   async index(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return ctx.response.ok({ data: await this.channels.list() })
   }
 
@@ -130,8 +149,12 @@ export default class FlespiChannelController {
    * POST /api/v1/flespi/channels
    * body : { name: "sisbm_channel", protocolName?: "micodus", messagesTtl?: 86400 }
    */
+  /*
+  création d'un canal 
+  */
   async store(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     const p = await ctx.request.validateUsing(createChannelValidator)
     const canal = await this.channels.create({
       name: p.name,
@@ -157,7 +180,8 @@ export default class FlespiChannelController {
 
   /** GET /api/v1/flespi/channels/:id */
   async show(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const canal = await this.channels.get(Number(ctx.params.id))
     if (!canal) return this.introuvable(ctx, 'Canal flespi introuvable')
     return ctx.response.ok({ data: canal })
@@ -165,7 +189,8 @@ export default class FlespiChannelController {
 
   /** PATCH /api/v1/flespi/channels/:id */
   async update(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     const p = await ctx.request.validateUsing(updateChannelValidator)
     const canal = await this.channels.update(Number(ctx.params.id), p)
     return ctx.response.ok({ data: canal })
@@ -179,7 +204,8 @@ export default class FlespiChannelController {
    * il faudrait reprogrammer chaque boîtier par SMS.
    */
   async destroy(ctx: HttpContext) {
-    await authorize(ctx, 'manageVehicles')
+    //await authorize(ctx, 'manageVehicles')
+    await authorize(ctx, 'manageDevices')
     const id = Number(ctx.params.id)
     if (id === sisbmConfig.flespi.channelId && ctx.request.input('force') !== 'true') {
       return ctx.response.conflict({
@@ -199,7 +225,8 @@ export default class FlespiChannelController {
   // ------------------------------------------------------------- diagnostic
   /** GET /api/v1/flespi/channels/:id/logs?from=&to=&count= */
   async logs(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const q = await ctx.request.validateUsing(logQueryValidator)
     const logs = await this.channels.logs(Number(ctx.params.id), {
       from: toFlespiSeconds(q.from),
@@ -211,7 +238,8 @@ export default class FlespiChannelController {
 
   /** GET /api/v1/flespi/channels/:id/messages?currKey=0&limit=100 */
   async messages(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const q = await ctx.request.validateUsing(channelMessagesValidator)
     const r = await this.channels.messages(Number(ctx.params.id), {
       currKey: q.currKey,
@@ -225,7 +253,8 @@ export default class FlespiChannelController {
 
   /** GET /api/v1/flespi/channels/:id/connections — boîtiers connectés en ce moment. */
   async connections(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     return ctx.response.ok({
       data: await this.channels.connections(Number(ctx.params.id)),
     })
@@ -240,7 +269,8 @@ export default class FlespiChannelController {
    * passer dans `flespiIdent` lors de la création.
    */
   async idents(ctx: HttpContext) {
-    await authorize(ctx, 'viewVehicles')
+    //await authorize(ctx, 'viewVehicles')
+    await authorize(ctx, 'viewDevices')
     const vus = await this.channels.seenIdents(Number(ctx.params.id))
     const devicesGw = this.devices
     const org = toExecutionContext(ctx).organizationId

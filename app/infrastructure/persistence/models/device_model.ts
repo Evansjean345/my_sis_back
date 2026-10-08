@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
+/*
+Table la plus susceptible de changer
+*/
 
 export default class DeviceModel extends BaseModel {
   static table = 'devices'
@@ -11,17 +14,22 @@ export default class DeviceModel extends BaseModel {
   @column() declare manufacturer: string
   @column() declare model: string
   @column() declare protocol: string | null
+  //colonne inutile à supprimer /ou utile pour la config
   @column({ columnName: 'firmware_version' }) declare firmwareVersion: string | null
   @column({ columnName: 'has_relay' }) declare hasRelay: boolean
   @column({ columnName: 'sim_msisdn' }) declare simMsisdn: string | null
+  //utile à garder
   @column({ columnName: 'sim_iccid' }) declare simIccid: string | null
+  //utile pour l'apn
   @column({ columnName: 'sim_operator' }) declare simOperator: string | null
   @column({ columnName: 'flespi_device_id' }) declare flespiDeviceId: number | null
   @column({ columnName: 'flespi_channel_id' }) declare flespiChannelId: number | null
   @column({ columnName: 'flespi_ident' }) declare flespiIdent: string | null
   @column() declare status: string
   @column.dateTime({ columnName: 'last_seen_at' }) declare lastSeenAt: DateTime | null
+  //à definir pour la gestion des zones blanches
   @column({ columnName: 'last_gsm_signal' }) declare lastGsmSignal: number | null
+  //à definir plus tard pour la gestion du carburant
   @column({ columnName: 'last_battery_pct' }) declare lastBatteryPct: number | null
   @column() declare notes: string | null
   @column.dateTime({ autoCreate: true, columnName: 'created_at' }) declare createdAt: DateTime

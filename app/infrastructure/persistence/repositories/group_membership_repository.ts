@@ -34,6 +34,7 @@ interface Tables {
   commandColumn: 'vehicle_id' | 'device_id'
 }
 
+//tables vehicle_group_members
 const VEHICLES: Tables = {
   pivot: 'vehicle_group_members',
   groupColumn: 'vehicle_group_id',
@@ -43,6 +44,7 @@ const VEHICLES: Tables = {
   commandColumn: 'vehicle_id',
 }
 
+//tables device_group_members
 const DEVICES: Tables = {
   pivot: 'device_group_members',
   groupColumn: 'device_group_id',
@@ -55,6 +57,7 @@ const DEVICES: Tables = {
 class LucidGroupMembership implements GroupMembershipRepository {
   constructor(private readonly t: Tables) {}
 
+  //fonction utilisant les jointures internes pour retrouvé les membres d'une table
   async members(groupId: string): Promise<GroupMember[]> {
     const rows = await db
       .from(`${this.t.pivot} as m`)
@@ -67,6 +70,7 @@ class LucidGroupMembership implements GroupMembershipRepository {
     return rows.map((r) => ({ id: r.id, label: r.label, addedAt: r.added_at }))
   }
 
+  //retrouver le nombre de groups
   async countByGroup(groupIds: string[]): Promise<Record<string, number>> {
     if (groupIds.length === 0) return {}
     const rows = await db
@@ -81,6 +85,7 @@ class LucidGroupMembership implements GroupMembershipRepository {
     return Object.fromEntries(rows.map((r) => [r.gid, Number(r.total)]))
   }
 
+  //retrouver un membre par son ID
   async memberIds(groupId: string): Promise<string[]> {
     const rows = await db
       .from(this.t.pivot)
@@ -89,6 +94,7 @@ class LucidGroupMembership implements GroupMembershipRepository {
     return rows.map((r) => r.id as string)
   }
 
+  //retrouver les commands qu'un membre d'un groupe peut effectué
   async commandIdsForMembers(memberIds: string[]): Promise<string[]> {
     if (memberIds.length === 0) return []
     const rows = await db
@@ -98,6 +104,12 @@ class LucidGroupMembership implements GroupMembershipRepository {
     return rows.map((r) => r.id as string)
   }
 
+  /*
+  fonction de traitement et de filtarge pour ajouter les membres d'une organisation
+  1-verivication si les membres sont éligibles 
+  2-filtrage si les membres appartienent déjà à l'organisation
+  3-renvoi des membres qui ne peuvent pas etre ajoutés
+  */
   async add(
     groupId: string,
     organizationId: string,
@@ -140,6 +152,12 @@ class LucidGroupMembership implements GroupMembershipRepository {
     }
   }
 
+  /*
+  Fonction de suppression des membres d'une organisation
+  1-recherche des membres existants d'une organisation
+  2-renvoi des memebres qui n'ont reçu aucune suppression
+  3-renvoi des rejets de suppression
+  */
   async remove(groupId: string, memberIds: string[]): Promise<MembershipChange> {
     const candidats = [...new Set(memberIds)]
     const existants = await db
@@ -165,12 +183,14 @@ class LucidGroupMembership implements GroupMembershipRepository {
   }
 }
 
+//vehicle_group_members
 export class LucidVehicleGroupMembership extends LucidGroupMembership {
   constructor() {
     super(VEHICLES)
   }
 }
 
+//device_grou_members
 export class LucidDeviceGroupMembership extends LucidGroupMembership {
   constructor() {
     super(DEVICES)

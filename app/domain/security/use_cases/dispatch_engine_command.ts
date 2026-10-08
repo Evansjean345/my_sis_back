@@ -1,24 +1,32 @@
+//injection obligatoire
 import { inject } from '@adonisjs/core'
+//entité du domaine
 import { Err, Ok, NotFoundError, type DomainError, type Result } from '#domain/kernel'
+//stack technique
 import type { AuditLogger, Clock, ExecutionContext, UnitOfWork, UseCase } from '#application/ports'
+//structural pattern
 import type { DeviceCommandRepository } from '#domain/security/repositories/device_command_repository'
+//ports applicatifs pour le contexte de sécurité
 import type {
   DeviceCommandGateway,
   DeviceProviderReader,
   VehicleStateReader,
 } from '#application/security/ports'
 import { CommandId } from '#domain/security/value_objects'
+//Erreurs liée au contexte de sécurité
 import {
   DeviceNotEquippedError,
   ImmobilizationDisabledError,
   StalePositionError,
 } from '#domain/security/errors'
 
+//entré de l'envoi des commandes
 export interface DispatchEngineCommandInput {
   context: ExecutionContext
   commandId: string
 }
 
+//sortie de l'envoie des commandes
 export interface DispatchEngineCommandOutput {
   commandId: string
   commandType: string
@@ -26,6 +34,7 @@ export interface DispatchEngineCommandOutput {
   providerCommandId: string | null
 }
 
+//envoi des paramètres liée à l'immobilisation
 export interface DispatchSettings {
   /** IMMOBILIZATION_ENABLED : interrupteur général, `false` tant que le Jalon 3 n'est pas recetté. */
   enabled: boolean
@@ -72,6 +81,7 @@ export class DispatchEngineCommand implements UseCase<
     private readonly settings: DispatchSettings
   ) {}
 
+  //input
   async execute(
     input: DispatchEngineCommandInput
   ): Promise<Result<DispatchEngineCommandOutput, DomainError>> {
@@ -163,6 +173,7 @@ export class DispatchEngineCommand implements UseCase<
     }
   }
 
+  //output
   /** Transaction courte : n'écrit QUE le résultat de l'émission. */
   private async conclure(
     input: DispatchEngineCommandInput,

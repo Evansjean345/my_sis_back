@@ -30,8 +30,8 @@ export class LucidAuditLogger implements AuditLogger {
       action: entry.action,
       resource_type: entry.resourceType,
       resource_id: entry.resourceId ?? null,
-      before_state: entry.before ? JSON.stringify(entry.before) : null,
-      after_state: entry.after ? JSON.stringify(entry.after) : null,
+      before_state: entry.before ? JSON.stringify(entry.before) : null, //etat de l'action sur la ressource avant
+      after_state: entry.after ? JSON.stringify(entry.after) : null, //etat de l'action sur la ressource après
       metadata: JSON.stringify({ ...entry.metadata, requestId: entry.context.requestId }),
       occurred_at: DateTime.now().toSQL(),
     })

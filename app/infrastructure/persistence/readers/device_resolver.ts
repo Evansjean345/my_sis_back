@@ -76,6 +76,9 @@ export class CachedDeviceResolver implements DeviceResolver {
    * boîtier : sans cela, l'ingestion continuerait pendant cinq minutes à
    * rattacher les positions à l'ancien véhicule.
    */
+  /*
+  Méthode pour invalider le cache d'un boitier (ident) dans le cache mémoire et Redis
+  */
   async invalidate(ident: string): Promise<void> {
     this.#memoire.delete(ident)
     try {
@@ -115,7 +118,7 @@ export class CachedDeviceResolver implements DeviceResolver {
         ident,
         sansZero: ident.startsWith('0') && ident.length > 1 ? ident.slice(1) : ident,
         // Micodus : un boîtier déclaré « 0 + ID » avant correction reste reconnu.
-        avecZero: `0${ident}`,
+        avecZero: `0${ident}`, //point à définir
       } as never
     )
 

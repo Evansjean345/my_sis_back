@@ -8,6 +8,10 @@
  * `?` ne sont pas toujours présents selon le protocole ou la requête `fields`.
  */
 
+/*
+Gestion des types liés aux appels de l'api 
+*/
+
 /** POST/GET /gw/channels → result[] */
 export interface FlespiChannel {
   id: number

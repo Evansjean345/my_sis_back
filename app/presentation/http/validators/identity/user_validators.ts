@@ -7,6 +7,9 @@ export const listUsersValidator = vine.compile(
     page: vine.number().min(1).optional(),
     perPage: vine.number().min(1).max(100).optional(),
     status: vine.enum(USER_STATUS).optional(),
+    /** Nom complet ou e-mail. */
+    search: vine.string().trim().minLength(1).maxLength(80).optional(),
+    roleId: vine.string().uuid().optional(),
   })
 )
 

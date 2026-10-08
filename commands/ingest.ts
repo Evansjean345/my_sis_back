@@ -100,12 +100,14 @@ export default class Ingest extends BaseCommand {
       username: flespi.mqttToken,
       password: '',
       topics: flespi.topics,
+      //à definir pour plusieurs trackers
       shareGroup: flespi.shareGroup || undefined,
       qos: 1,
       reconnectPeriodMs: sisbmConfig.mqtt.reconnectPeriodMs,
       connectTimeoutMs: sisbmConfig.mqtt.connectTimeoutMs,
       receiveMaximum: sisbmConfig.mqtt.maxInflightQueue,
       sessionExpirySeconds: flespi.sessionExpirySeconds,
+      //definir pour une flotte
       maxAttempts: 20,
     })
 

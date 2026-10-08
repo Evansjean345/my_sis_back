@@ -9,6 +9,11 @@ import vine from '@vinejs/vine'
  * reste le dernier rempart.
  */
 
+/*
+Validation des types de véhicules 
+de trackers --- à ajouter 
+des fournisseurs et des etats d'un véhicule
+*/
 const VEHICLE_TYPES = [
   'car',
   'van',
@@ -22,8 +27,10 @@ const VEHICLE_TYPES = [
 ] as const
 const VEHICLE_STATUS = ['draft', 'active', 'maintenance', 'inactive', 'archived'] as const
 const DEVICE_STATUS = ['stock', 'active', 'maintenance', 'decommissioned'] as const
+//fournisseeur à ajouter dans validator pour les nouveaux canaux
 const MANUFACTURERS = ['micodus', 'teltonika', 'concox', 'queclink', 'other'] as const
 
+//pages des véhicules
 export const listVehiclesValidator = vine.compile(
   vine.object({
     page: vine.number().min(1).optional(),
@@ -33,6 +40,7 @@ export const listVehiclesValidator = vine.compile(
   })
 )
 
+//créer un véhiucle --- odomètre à ajouter pour un véhicule
 export const createVehicleValidator = vine.compile(
   vine.object({
     registration: vine.string().trim().minLength(3).maxLength(20),
@@ -76,6 +84,7 @@ export const updateVehicleValidator = vine.compile(
   })
 )
 
+//pages des trackers
 export const listDevicesValidator = vine.compile(
   vine.object({
     page: vine.number().min(1).optional(),
@@ -90,14 +99,13 @@ export const listDevicesValidator = vine.compile(
 export const createDeviceValidator = vine.compile(
   vine.object({
     /**
-     * 15 chiffres exactement. Le `0` de tête exigé par Flespi pour les
+     * 15 chiffres exactement.
      * boîtiers Micodus est ajouté automatiquement dans `flespiIdent` : la base
      * ne contient que des IMEI normalisés.
      */
     /**
      * Chiffres uniquement, SANS limite de longueur : les Micodus font 15
-     * caractères, d'autres constructeurs non. Le « 0 » de tête Flespi est
-     * retiré par `DeviceIdent`, pas ici.
+     * caractères, d'autres constructeurs non.
      */
     imei: vine.string().trim().regex(/^\d+$/),
     //.regex(/^\d{15}$/),
@@ -159,6 +167,7 @@ export const createDeviceValidator = vine.compile(
   })
 )
 
+//synchronisation d'un tracker
 export const syncDeviceFlespiValidator = vine.compile(
   vine.object({
     flespiChannelId: vine.number().min(1).optional(),
@@ -207,6 +216,24 @@ export const updateDeviceValidator = vine.compile(
   })
 )
 
+/**
+ * PATCH /devices/:id côté CLIENT.
+ *
+ * Le boîtier appartient au parc de l'organisation mais sa configuration
+ * technique (IMEI, SIM, ident flespi, statut de cycle de vie) relève de
+ * l'exploitant : une erreur sur l'ident ou la SIM coupe la remontée des
+ * positions. Le client ne renseigne que ses propres annotations.
+ */
+//notes pour modification d'un tracker
+export const clientUpdateDeviceValidator = vine.compile(
+  vine.object({
+    notes: vine.string().trim().maxLength(500).optional(),
+    /** Nom affiché (répercuté chez flespi). */
+    name: vine.string().trim().minLength(2).maxLength(255).optional(),
+  })
+)
+
+//notes pour assignation d'un tracker à un vehicule
 export const assignDeviceValidator = vine.compile(
   vine.object({
     vehicleId: vine.string().uuid(),

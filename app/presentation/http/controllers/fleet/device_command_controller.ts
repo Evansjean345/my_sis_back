@@ -26,6 +26,7 @@ import {
 import { authorize } from '#presentation/http/support/authorize'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 import DeviceCommandModel from '#infrastructure/persistence/models/device_command_model'
+import { listCommandsValidator } from '#presentation/http/validators/fleet/stats_validators'
 import {
   adminListCommandsValidator,
   adminOrganizationFilterValidator,
@@ -61,10 +62,31 @@ import {
  * mauvais APN). Une erreur ici n'est PAS rattrapable à distance : il faut
  * intervenir physiquement ou par SMS. Confirmation explicite exigée.
  */
+/*
+A mettre dans un fichier qui sera les commandes sensibles pour eviter de polluer le code du controller
+*/
 const REGLAGES_CRITIQUES = new Set([
   'setting.server.set',
   'setting.network.set',
   'setting.auto_apn.set',
+])
+
+/**
+ * Commandes d'EXPLOITATION ouvertes au tableau de bord client (routes
+ * `/api/v1/devices/:id/commands/*`). Les autres — configuration du boîtier et
+ * géofences embarquées — sont réservées à l'exploitant (start/routes.ts).
+ */
+/*
+à mettre dans un fichier pour eviter de poluer la code base - commande legacy pour les commande notre code base
+*/
+export const CLIENT_COMMANDS: ReadonlySet<FlespiCommandName> = new Set<FlespiCommandName>([
+  'arm',
+  'disarm',
+  'request_status',
+  'reboot',
+  'start_tracking',
+  'stop_tracking',
+  'set_output',
 ])
 
 @inject()
@@ -89,6 +111,8 @@ export default class DeviceCommandController {
         requiresData: def.data === null,
         sensitive: def.sensitive,
         verified: def.verified,
+        /** Ouverte aux routes client ; sinon réservée à `/admin/devices/:id/commands/*`. */
+        clientAllowed: CLIENT_COMMANDS.has(nom as FlespiCommandName),
         endpoint: `/api/v1/devices/:id/commands/${nom.replace(/_/g, '-')}`,
       })),
       meta: {
@@ -97,6 +121,71 @@ export default class DeviceCommandController {
           'exact accepté par CE boîtier est sur GET /api/v1/devices/:id/flespi/commands.',
       },
     })
+  }
+
+  /**
+   * GET /api/v1/commands ?deviceId=&vehicleId=&status=&commandType=&from=&to=&page=&perPage=
+   *
+   * Journal des commandes de l'organisation, du plus récent au plus ancien.
+   * Chaque ligne porte l'immatriculation et l'IMEI : le tableau de bord
+   * l'affiche sans requête par ligne.
+   */
+  async index(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    const f = await ctx.request.validateUsing(listCommandsValidator)
+    const org = toExecutionContext(ctx).organizationId
+
+    const query = DeviceCommandModel.query()
+      .where('organization_id', org)
+      .orderBy('requested_at', 'desc')
+    if (f.deviceId) query.where('device_id', f.deviceId)
+    if (f.vehicleId) query.where('vehicle_id', f.vehicleId)
+    if (f.status) query.where('status', f.status)
+    if (f.commandType) query.where('command_type', f.commandType)
+    if (f.from) query.where('requested_at', '>=', new Date(f.from))
+    if (f.to) query.where('requested_at', '<=', new Date(f.to))
+
+    const resultat = await query.paginate(f.page ?? 1, Math.min(f.perPage ?? 25, 100))
+    const lignes = resultat.all()
+
+    const vehiculeIds = [...new Set(lignes.map((c) => c.vehicleId).filter((v): v is string => !!v))]
+    const deviceIds = [...new Set(lignes.map((c) => c.deviceId))]
+    const [vehicules, boitiers] = await Promise.all([
+      vehiculeIds.length
+        ? db
+            .from('vehicles')
+            .whereIn('id', vehiculeIds)
+            .where('organization_id', org)
+            .select('id', 'registration', 'label')
+        : [],
+      deviceIds.length
+        ? db
+            .from('devices')
+            .whereIn('id', deviceIds)
+            .where('organization_id', org)
+            .select('id', 'imei', 'model')
+        : [],
+    ])
+    const v = Object.fromEntries(vehicules.map((l) => [l.id, l]))
+    const d = Object.fromEntries(boitiers.map((l) => [l.id, l]))
+
+    return ctx.response.ok({
+      meta: resultat.getMeta(),
+      data: lignes.map((c) => ({
+        ...c.serialize(),
+        vehicle: c.vehicleId && v[c.vehicleId] ? v[c.vehicleId] : null,
+        device: d[c.deviceId] ?? null,
+      })),
+    })
+  }
+
+  /**
+   * GET /api/v1/commands/stats — commandes de l'organisation sur 24 h par
+   * statut et par type, plus les commandes EN VOL (toutes dates).
+   */
+  async stats(ctx: HttpContext) {
+    await authorize(ctx, 'viewVehicles')
+    return this.statistiques(ctx, ownScope(ctx))
   }
 
   /** GET /api/v1/devices/:id/flespi/commands — catalogue RÉEL publié par flespi pour ce boîtier. */
@@ -170,6 +259,18 @@ export default class DeviceCommandController {
   }
 
   // ------------------------------------------------------------- moteur : refusé ici
+  // ------------------------------------------------------------- moteur : refusé ici
+  // ------------------------------------------------------------- moteur : refusé ici
+  // ------------------------------------------------------------- moteur : refusé ici
+  /*
+  Fonction à supprimer controller trop sale
+  */
+  /*
+  Fonction à supprimer controller trop sale
+  */
+  /*
+  Fonction à supprimer controller trop sale
+  */
   async engineForbidden(ctx: HttpContext) {
     return ctx.response.forbidden({
       error: {
@@ -194,6 +295,10 @@ export default class DeviceCommandController {
    * Journal de toutes les commandes émises sur la plateforme, du plus récent
    * au plus ancien. Chaque ligne porte son organisation.
    */
+  /*
+  Journal de toutes les commandes émises sur la plateforme, du plus récent
+  au plus ancien. Chaque ligne porte son organisation.
+  */
   async indexAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const f = await ctx.request.validateUsing(adminListCommandsValidator)
@@ -220,12 +325,112 @@ export default class DeviceCommandController {
   async statsAll(ctx: HttpContext) {
     await authorizePlatform(ctx)
     const { organizationId } = await ctx.request.validateUsing(adminOrganizationFilterValidator)
+    return this.statistiques(ctx, { organizationId: organizationId ?? null })
+  }
 
-    const base = () => {
-      const q = DeviceCommandModel.query()
-      if (organizationId) q.where('organization_id', organizationId)
-      return q
+  /** GET /api/v1/admin/devices/:id/commands/history */
+  /*
+  History des commandes d'un boîtier réel, limitées aux 50 plus récentes. Chaque ligne porte l'immatriculation et l'IMEI : le tableau de bord les affiche sans requête par ligne.
+  1. récupération des commandes en base de données
+  2. récupération des véhicules et boitiers associés
+  */
+  async historyAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.historyScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /** GET /api/v1/admin/devices/:id/flespi/commands */
+  /*
+  Catalogue RÉEL publié par flespi pour ce boîtier, toutes organisations confondues.
+  */
+  async flespiCatalogAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.flespiCatalogScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /** POST /api/v1/admin/devices/:id/commands/sync — à appeler après CHAQUE commande. */
+  /*
+  Synchronisation des commandes en vol d'un boîtier réel : 
+  1. résultats de flespi, 2. commandes encore en file, 3. mise à jour locale.
+  */
+  async syncAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.syncScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /** GET /api/v1/admin/devices/:id/commands/results */
+  /*
+  Visualisation des résultats bruts renvoyés par flespi pour un boîtier donné, toutes organisations confondues.
+  */
+  async resultsAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.resultsScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /** DELETE /api/v1/admin/devices/:id/commands/:commandId */
+  /*
+  Suppression de la route pour l'annulation d'une commande en cours pour un admin ou un client
+  */
+  async cancelAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.cancelScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /** POST /api/v1/admin/devices/:id/commands/send — commande flespi brute (mêmes garde-fous). */
+  /*
+  Envoi d'une commande brute vers le boîtier, validée contre le catalogue réel du boîtier. 
+  Habilitation « commande sensible » exigée.
+  */
+  async sendAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    return this.sendScoped(ctx, PLATFORM_SCOPE)
+  }
+
+  /**
+   * POST /api/v1/admin/devices/:id/commands/:command
+   * (arm, disarm, request-status, reboot, start-tracking, stop-tracking,
+   *  set-output, set-admin-number, change-password, reset-password, set-apn,
+   *  add-geofence, remove-geofence)
+   *
+   * Une seule fonction pour toutes les commandes métier : le nom vient de
+   * l'URL, en kebab-case comme les routes client. La coupure et le
+   * rétablissement moteur restent REFUSÉS (contexte `security`, CM-07).
+   */
+  /*
+  Supprimer cette fonction
+  */
+  /*
+  Supprimer cette fonction
+  */
+  /*
+  Supprimer cette fonction
+  */
+  async executeAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    const nom = String(ctx.params.command ?? '').replace(/-/g, '_') as FlespiCommandName
+
+    if (nom === 'cut_engine' || nom === 'restore_engine') return this.engineForbidden(ctx)
+    if (!Object.hasOwn(FLESPI_COMMANDS, nom)) {
+      return ctx.response.notFound({
+        error: {
+          code: 'E_UNKNOWN_COMMAND',
+          message: `Commande inconnue : ${ctx.params.command}`,
+          details: { command: ctx.params.command },
+        },
+      })
     }
+    return this.executerMetier(ctx, nom, PLATFORM_SCOPE)
+  }
+
+  // -------------------------------------------------------------------------
+  //  Implémentations partagées client / admin : seul le périmètre change.
+  // -------------------------------------------------------------------------
+
+  /*
+  Statistiques des commandes sur 24 h par statut et par type, plus le nombre de commandes EN VOL (toutes dates) — celles qui bloquent un boîtier (CM-09).
+  */
+  private async statistiques(ctx: HttpContext, scope: TenantScope) {
+    const base = () => applyScope(DeviceCommandModel.query(), scope)
     const depuis = DateTime.now().minus({ hours: 24 }).toJSDate()
 
     const [parStatut, parType, enVol] = await Promise.all([
@@ -258,73 +463,12 @@ export default class DeviceCommandController {
     })
   }
 
-  /** GET /api/v1/admin/devices/:id/commands/history */
-  async historyAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.historyScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /** GET /api/v1/admin/devices/:id/flespi/commands */
-  async flespiCatalogAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.flespiCatalogScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /** POST /api/v1/admin/devices/:id/commands/sync — à appeler après CHAQUE commande. */
-  async syncAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.syncScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /** GET /api/v1/admin/devices/:id/commands/results */
-  async resultsAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.resultsScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /** DELETE /api/v1/admin/devices/:id/commands/:commandId */
-  async cancelAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.cancelScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /** POST /api/v1/admin/devices/:id/commands/send — commande flespi brute (mêmes garde-fous). */
-  async sendAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    return this.sendScoped(ctx, PLATFORM_SCOPE)
-  }
-
-  /**
-   * POST /api/v1/admin/devices/:id/commands/:command
-   * (arm, disarm, request-status, reboot, start-tracking, stop-tracking,
-   *  set-output, set-admin-number, change-password, reset-password, set-apn,
-   *  add-geofence, remove-geofence)
-   *
-   * Une seule fonction pour toutes les commandes métier : le nom vient de
-   * l'URL, en kebab-case comme les routes client. La coupure et le
-   * rétablissement moteur restent REFUSÉS (contexte `security`, CM-07).
-   */
-  async executeAll(ctx: HttpContext) {
-    await authorizePlatform(ctx)
-    const nom = String(ctx.params.command ?? '').replace(/-/g, '_') as FlespiCommandName
-
-    if (nom === 'cut_engine' || nom === 'restore_engine') return this.engineForbidden(ctx)
-    if (!Object.hasOwn(FLESPI_COMMANDS, nom)) {
-      return ctx.response.notFound({
-        error: {
-          code: 'E_UNKNOWN_COMMAND',
-          message: `Commande inconnue : ${ctx.params.command}`,
-          details: { command: ctx.params.command },
-        },
-      })
-    }
-    return this.executerMetier(ctx, nom, PLATFORM_SCOPE)
-  }
-
-  // -------------------------------------------------------------------------
-  //  Implémentations partagées client / admin : seul le périmètre change.
-  // -------------------------------------------------------------------------
-
+  /*
+  History des commandes d'un boîtier réel, limitées aux 50 plus récentes. Chaque ligne porte l'immatriculation et l'IMEI : le tableau de bord les affiche sans requête par ligne.
+  1. récupération des commandes en base de données
+  2. récupération des véhicules et boitiers associés
+  3. renvoi du résultat
+  */
   private async historyScoped(ctx: HttpContext, scope: TenantScope) {
     const query = db.from('device_commands').where('device_id', ctx.params.id)
     const lignes = await applyScope(query, scope)
@@ -350,6 +494,13 @@ export default class DeviceCommandController {
     return ctx.response.ok({ data: lignes })
   }
 
+  /*
+  Méthode permettant de récupérer le catalogue réel publié par flespi pour un boîtier donné.
+  Le catalogue est celui que le boîtier accepte réellement, et non pas celui défini
+  dans la documentation flespi (qui peut être obsolète ou incomplète). Le catalogue est utilisé pour valider les commandes avant de les envoyer au boîtier.
+  Le catalogue est renvoyé sous forme d'un tableau d'objets contenant les informations suivantes :
+  - name : nom de la commande
+  */
   private async flespiCatalogScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
     if (!device) return
@@ -367,6 +518,11 @@ export default class DeviceCommandController {
     })
   }
 
+  /*
+  Synchronisation des commandes en vol d'un boîtier réel : 1. résultats de flespi, 2. commandes encore en file, 3. mise à jour locale.
+  Le rapport renvoyé est de la forme { acknowledged, failed, expired, stillPending }.
+  1. acknowledged : nombre de commandes reconnues par le boîtier (acknowledged_at).
+  */
   private async syncScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
     if (!device) return
@@ -375,6 +531,10 @@ export default class DeviceCommandController {
     return ctx.response.ok({ data: rapport })
   }
 
+  /*
+  Resultats bruts renvoyés par flespi pour un boîtier réel : 
+  1. résultats de commandes, 2. commandes encore en file.
+  */
   private async resultsScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
     if (!device) return
@@ -386,6 +546,9 @@ export default class DeviceCommandController {
     return ctx.response.ok({ data: { results: resultats, queue: file } })
   }
 
+  /*
+  Annulation d'une commande encore en file (queued ou sent) : 1. annulation chez flespi, 2. mise à jour locale.
+  */
   private async cancelScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
     if (!device) return
@@ -426,6 +589,11 @@ export default class DeviceCommandController {
     return ctx.response.noContent()
   }
 
+  /*
+  Envoi d'une commande brute (custom, setting.*…) sur un boîtier réel, avec les étapes suivantes :
+  1. Récupération du boîtier à partir du contexte et du scope.
+  2. Validation de la commande contre le catalogue réel du boîtier.
+  */
   private async sendScoped(ctx: HttpContext, scope: TenantScope) {
     const p = await ctx.request.validateUsing(flespiCommandValidator)
     const cmd: FlespiCommand = {
@@ -461,6 +629,12 @@ export default class DeviceCommandController {
   }
 
   // -------------------------------------------------------------------------
+  /*
+  Execution d'une commande métier sur un boîtier réel, avec les étapes suivantes :
+  1. Récupération du boîtier à partir du contexte et du scope.
+  2. Validation de la commande contre le catalogue réel du boîtier.
+  NB : separer aller dans flespi_command_gateway et la logique métier dans ce controller(séparer les commandes dans un fichier externe)
+  */
 
   private async executerMetier(ctx: HttpContext, commande: FlespiCommandName, scope: TenantScope) {
     const def = FLESPI_COMMANDS[commande]
@@ -500,6 +674,11 @@ export default class DeviceCommandController {
   /**
    * Chaîne commune : boîtier → catalogue → réconciliation → trace → émission → mise à jour.
    */
+  /*
+  Fonction exécutant une commande sur un boîtier réel, avec les étapes suivantes :
+  1. Récupération du boîtier à partir du contexte et du scope.
+  2. Validation de la commande contre le catalogue réel du boîtier.
+  */
   private async executer(
     ctx: HttpContext,
     input: {
@@ -668,6 +847,11 @@ export default class DeviceCommandController {
     })
   }
 
+  /*
+  Logs d'une commande : 1 ligne dans device_commands + 1 ligne dans device_command_logs.
+  Le log est écrit dans la même transaction que la mise à jour de device_commands.
+  1. status_from = queued, sent, acknowledged, failed, cancelled, expired
+  */
   private async journaliser(
     commandId: string,
     de: string,
@@ -694,6 +878,12 @@ export default class DeviceCommandController {
   }
 
   /** Coupure moteur déguisée en commande brute : S20 (Micodus) ou RELAY (Concox). */
+  /*
+  coupure moteur = commande « custom » avec code S20 ou payload RELAY, ou message_id 8105
+  Cette fonction est un garde-fou : la coupure moteur ne passe PAS par les
+  commandes génériques, mais par le contexte `security` (CM-07). Toute
+  commande de coupure moteur envoyée ici est refusée.
+  */
   private estCoupureMoteur(cmd: FlespiCommand): boolean {
     if (cmd.name !== 'custom') return false
     const code = String(cmd.properties.command_code ?? '').toUpperCase()
@@ -706,6 +896,9 @@ export default class DeviceCommandController {
   }
 
   /** Boîtier de l'organisation, rattaché à flespi ; sinon répond et renvoie null. */
+  /*
+  Trouve le boitier correspondant à l'ID dans l'URL, vérifie qu'il appartient à l'organisation
+  */
   private async boitier(ctx: HttpContext, scope: TenantScope): Promise<DeviceModel | null> {
     const query = DeviceModel.query().where('id', ctx.params.id).whereNull('deleted_at')
     const device = await applyScope(query, scope).first()

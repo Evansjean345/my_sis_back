@@ -138,6 +138,7 @@ export default class ContainerProvider {
           safetySpeedKph: immo.safetySpeedKph,
           requireValidation: immo.requireValidation,
           commandTtlMinutes: immo.commandTtlMinutes,
+          //à supprimer
           maxPositionAgeSeconds: immo.maxPositionAgeSeconds,
         }
       )
@@ -159,6 +160,7 @@ export default class ContainerProvider {
         new LucidAuditLogger(),
         {
           enabled: immo.enabled,
+          // à supprimer
           maxPositionAgeSeconds: immo.maxPositionAgeSeconds,
         }
       )
@@ -186,6 +188,7 @@ export default class ContainerProvider {
         new LucidVehicleStateReader(),
         new SystemClock(),
         new LucidAuditLogger(),
+        //à supprimer
         immo.maxPositionAgeSeconds
       )
     })

@@ -69,6 +69,7 @@ export class LucidPositionRepository implements PositionRepository {
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'flespi')`
     })
 
+    //injection SQL des valeurs normalisés dans la table positions
     const resultat = await client(tx).rawQuery(
       `INSERT INTO positions (
          organization_id, device_id, vehicle_id, recorded_at, received_at,
@@ -92,6 +93,7 @@ export class LucidPositionRepository implements PositionRepository {
    * La borne sur `recorded_at` force le *partition pruning* : sans elle, la
    * requête scanne toutes les partitions mensuelles.
    */
+  //pruning ou elagage pour stocker les valeurs fixes
   async findLastValidFix(
     deviceId: DeviceId
   ): Promise<{ latitude: number; longitude: number; recordedAt: Date } | null> {
@@ -123,6 +125,7 @@ export class LucidPositionRepository implements PositionRepository {
    * sur `positions` (cf. `01_roles_and_grants.sql`) : la table reste
    * append-only pour tout le reste.
    */
+  //mise à jpur en temps réel de la table positions
   async attachToTrip(
     vehicleId: VehicleId,
     tripId: TripId,

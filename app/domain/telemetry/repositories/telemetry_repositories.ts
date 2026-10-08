@@ -10,6 +10,7 @@ import type { NormalizedReading } from '#domain/telemetry/entities/telemetry_rea
  * dicte le contrat ; l'infrastructure s'y plie.
  */
 
+//journal des trames brutes /utilité mqtt avec flespi
 export interface IngestMessageRepository {
   /** Journal des trames brutes. Idempotent sur (source, external_id). */
   record(
@@ -56,7 +57,7 @@ export interface PositionRepository {
     tx?: TransactionScope
   ): Promise<number>
 }
-
+//inserer en temps réel dans véhicule dans last_positions
 export interface VehicleLastPositionRepository {
   /** UPSERT de l'état courant. Sert 100 % du temps réel, jamais `positions`. */
   upsert(reading: NormalizedReading, tx?: TransactionScope): Promise<void>
@@ -66,5 +67,6 @@ export interface TripRepository {
   /** Trajet ouvert, sous verrou consultatif par véhicule. */
   findOpenByVehicle(vehicleId: VehicleId, tx?: TransactionScope): Promise<Trip | null>
   save(trip: Trip, tx?: TransactionScope): Promise<void>
+  //etat végétatif le trajet est marqué orphelin(orphan)
   findStale(now: Date, maxDurationHours: number, limit: number): Promise<Trip[]>
 }

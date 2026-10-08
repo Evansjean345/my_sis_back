@@ -28,6 +28,11 @@ import logger from '@adonisjs/core/services/logger'
  * rejoué automatiquement : on ne coupe pas un moteur deux fois par erreur.
  */
 
+/*
+Gestion centrale des appels liés à flespi 
+normalisation des données 
+et gestion des erreurs ainsi que les routes dediées à celle ci
+*/
 export interface FlespiClientConfig {
   token: string
   baseUrl: string
@@ -41,6 +46,9 @@ export interface FlespiErrorItem {
   [cle: string]: unknown
 }
 
+/*
+Gestion des data envoyé par flespi (toujours envoi d'un tableau comme convention -> [])
+*/
 export interface FlespiEnvelope<T> {
   result: T[]
   errors?: FlespiErrorItem[]
@@ -85,8 +93,11 @@ export class FlespiApiError extends Error {
 
   /** Code HTTP à renvoyer au client SISBM : 4xx flespi → 422, le reste → 502. */
   get httpStatusForClient(): number {
+    //NOT FOUND ERROR
     if (this.notFound) return 404
+    //MAUVAISE REQUETE
     if (this.status === 400) return 422
+    //ERREUR SERVEUR (PROXY)
     return 502
   }
 }
@@ -125,6 +136,12 @@ export class FlespiClient {
     }
 
     const url = this.url(chemin, opts)
+    /*
+    changement pour la mise en production (mettre les tentatives à 5 au lieu de 3 
+    et pour les erreurs servers toujours garder 1 )
+    NB: garder 3 pour les debuts
+    */
+    //const tentativesMax = IDEMPOTENTES.has(methode) ? 5 : 1
     const tentativesMax = IDEMPOTENTES.has(methode) ? 3 : 1
     let derniere: unknown
 
@@ -138,6 +155,7 @@ export class FlespiClient {
           (err as Error).name === 'TimeoutError' ||
           (err as Error).name === 'TypeError' // coupure réseau (fetch failed)
         if (!transitoire || tentative === tentativesMax) break
+        //gestion des requetes transitoires et logs pour celles ci
         const attente = 300 * 2 ** (tentative - 1)
         logger.warn(
           { methode, chemin, tentative, attente },
@@ -150,6 +168,8 @@ export class FlespiClient {
   }
 
   /** Un élément par son chemin, ou `null` s'il n'existe pas (404 ou 403 code 3). */
+  //CODE 3 renvoyé par flespi indiquant que le chemin n'existe pas
+  //methode permettant de retrouver une ressource flespi
   async item<T>(chemin: string, opts: RequestOptions = {}): Promise<T | null> {
     try {
       return await this.first<T>('GET', chemin, opts)
@@ -160,6 +180,7 @@ export class FlespiClient {
   }
 
   /** Raccourci : premier élément de `result`, ou `null`. */
+  //methode permettant de passer une requete
   async first<T>(methode: Methode, chemin: string, opts: RequestOptions = {}): Promise<T | null> {
     const env = await this.request<T>(methode, chemin, opts)
     return env.result[0] ?? null

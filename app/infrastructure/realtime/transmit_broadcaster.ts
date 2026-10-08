@@ -12,6 +12,7 @@ import type { RealtimeBroadcaster } from '#application/telemetry/ports'
  * l'ingestion. La position est déjà persistée — perdre un rafraîchissement
  * d'écran est sans conséquence, perdre une position ne l'est pas.
  */
+//SERVER SIDE EVENT POUR LA PUBLICATIONS EN TEMPS REELS DES POSITIONS
 export class TransmitBroadcaster implements RealtimeBroadcaster {
   async publishPosition(organizationId: string, payload: Record<string, unknown>): Promise<void> {
     try {

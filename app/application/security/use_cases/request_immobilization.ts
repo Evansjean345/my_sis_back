@@ -24,7 +24,7 @@ import {
   DeviceNotEquippedError,
   ImmobilizationDisabledError,
   NoPositionError,
-  StalePositionError,
+  //StalePositionError
 } from '#domain/security/errors'
 
 export interface RequestImmobilizationInput {
@@ -120,6 +120,7 @@ export class RequestImmobilization implements UseCase<
     if (!safetyLimit.ok) return safetyLimit
 
     // ---- 4. transaction sérialisable
+    //utilisation du pattern unitOfWork
     return this.unitOfWork.run(
       async (tx) => {
         const deviceId = DeviceId.from(state.deviceId!)
@@ -165,6 +166,7 @@ export class RequestImmobilization implements UseCase<
           },
         })
 
+        //output
         return Ok({
           commandId: command.id.value,
           status: command.status,

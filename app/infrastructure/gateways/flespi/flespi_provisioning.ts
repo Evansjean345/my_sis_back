@@ -18,13 +18,16 @@ import {
  *   1. le canal existe                         → sinon 422, rien n'est créé
  *   2. le type de boîtier appartient AU PROTOCOLE DU CANAL
  *        (Concox AT6 / proto 13 sur un canal micodus / proto 325 : refusé)
- *   3. l'ident suit la règle du protocole      (micodus : « 0 » + ID boîtier)
+ *   3. l'ident suit la règle du protocole      (micodus : ID boîtier)
  *   4. l'ident respecte le schéma du type      (motif publié par flespi)
  *   5. aucun device flespi ne porte déjà cet ident (sinon : rattachement
  *      explicite via `linkExisting`, ou 409)
  *   6. création
  */
 
+/*
+Fichier managant les ressources du server flespi
+*/
 export class ProvisioningError extends Error {
   constructor(
     readonly code: string,
@@ -65,6 +68,7 @@ export class FlespiProvisioning {
     private readonly protocols: FlespiProtocolGateway
   ) {}
 
+  //appel reseau à founir pour le canal felspi
   async provision(input: ProvisionInput): Promise<ProvisionResult> {
     // ---- 1. canal
     if (!input.channelId) {

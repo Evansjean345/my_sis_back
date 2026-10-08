@@ -10,7 +10,8 @@ import vine from '@vinejs/vine'
 const COLOR = /^#[0-9a-fA-F]{6}$/
 
 /** Plafond d'une affectation en lot : au-delà, c'est un import, pas une affectation. */
-const MAX_MEMBRES = 200
+//supprimer le plafond d'affectation
+//const MAX_MEMBRES = 200
 
 const groupFields = {
   name: vine.string().trim().minLength(2).maxLength(80),
@@ -36,14 +37,18 @@ export const listGroupsValidator = vine.compile(
   })
 )
 
+//plafond d'affection retiré
 export const assignVehiclesValidator = vine.compile(
   vine.object({
-    vehicleIds: vine.array(vine.string().uuid()).minLength(1).maxLength(MAX_MEMBRES).distinct(),
+    vehicleIds: vine.array(vine.string().uuid()).minLength(1),
+    //.maxLength(MAX_MEMBRES).distinct(),
   })
 )
 
+//plafond d'affectation retiré
 export const assignDevicesValidator = vine.compile(
   vine.object({
-    deviceIds: vine.array(vine.string().uuid()).minLength(1).maxLength(MAX_MEMBRES).distinct(),
+    deviceIds: vine.array(vine.string().uuid()).minLength(1),
+    //.maxLength(MAX_MEMBRES).distinct(),
   })
 )

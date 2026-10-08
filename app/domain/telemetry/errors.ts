@@ -1,5 +1,6 @@
 import { DomainError } from '#domain/kernel'
 
+//tracker inconnue dans la base de donnée(erreur contrainte base de donnée et not found)
 export class UnknownDeviceError extends DomainError {
   readonly code = 'E_UNKNOWN_DEVICE'
   readonly httpStatus = 404
@@ -12,6 +13,7 @@ export class UnknownDeviceError extends DomainError {
   }
 }
 
+//trame reçu par flespi est illisible
 export class MalformedFrameError extends DomainError {
   readonly code = 'E_MALFORMED_FRAME'
   readonly httpStatus = 422
@@ -20,6 +22,7 @@ export class MalformedFrameError extends DomainError {
   }
 }
 
+//le tracker n'est pas assigné à un véhicule (contrainte base de donnée)
 export class DeviceNotAssignedError extends DomainError {
   readonly code = 'E_DEVICE_NOT_ASSIGNED'
   readonly httpStatus = 409
