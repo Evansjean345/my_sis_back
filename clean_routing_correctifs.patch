@@ -1,0 +1,707 @@
+diff --git a/adonisrc.ts b/adonisrc.ts
+index fde03c8..72690aa 100644
+--- a/adonisrc.ts
++++ b/adonisrc.ts
+@@ -45,7 +45,12 @@ export default defineConfig({
+   | Préchargements
+   |--------------------------------------------------------------------------
+   */
+-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
++  preloads: [
++    () => import('#start/routes'),
++    () => import('#start/kernel'),
++    // Canaux temps réel : enregistrement des routes + autorisation d'abonnement.
++    () => import('#start/transmit'),
++  ],
+ 
+   /*
+   |--------------------------------------------------------------------------
+diff --git a/app/domain/security/use_cases/dispatch_engine_command.ts b/app/domain/security/use_cases/dispatch_engine_command.ts
+deleted file mode 100644
+index 9e15e0b..0000000
+--- a/app/domain/security/use_cases/dispatch_engine_command.ts
++++ /dev/null
+@@ -1,212 +0,0 @@
+-//injection obligatoire
+-import { inject } from '@adonisjs/core'
+-//entité du domaine
+-import { Err, Ok, NotFoundError, type DomainError, type Result } from '#domain/kernel'
+-//stack technique
+-import type { AuditLogger, Clock, ExecutionContext, UnitOfWork, UseCase } from '#application/ports'
+-//structural pattern
+-import type { DeviceCommandRepository } from '#domain/security/repositories/device_command_repository'
+-//ports applicatifs pour le contexte de sécurité
+-import type {
+-  DeviceCommandGateway,
+-  DeviceProviderReader,
+-  VehicleStateReader,
+-} from '#application/security/ports'
+-import { CommandId } from '#domain/security/value_objects'
+-//Erreurs liée au contexte de sécurité
+-import {
+-  DeviceNotEquippedError,
+-  ImmobilizationDisabledError,
+-  StalePositionError,
+-} from '#domain/security/errors'
+-
+-//entré de l'envoi des commandes
+-export interface DispatchEngineCommandInput {
+-  context: ExecutionContext
+-  commandId: string
+-}
+-
+-//sortie de l'envoie des commandes
+-export interface DispatchEngineCommandOutput {
+-  commandId: string
+-  commandType: string
+-  status: string
+-  providerCommandId: string | null
+-}
+-
+-//envoi des paramètres liée à l'immobilisation
+-export interface DispatchSettings {
+-  /** IMMOBILIZATION_ENABLED : interrupteur général, `false` tant que le Jalon 3 n'est pas recetté. */
+-  enabled: boolean
+-  maxPositionAgeSeconds: number
+-}
+-
+-/**
+- * =========================================================================
+- *  CAS D'USAGE — Transmettre la commande au boîtier
+- * =========================================================================
+- *
+- * C'est le seul endroit du système qui agit physiquement sur un véhicule.
+- * Il n'est atteignable qu'après `RequestImmobilization` (garde-fou de vitesse
+- * à la demande) puis `ValidateImmobilization` (second opérateur, vitesse
+- * revérifiée). Ici a lieu le TROISIÈME contrôle, juste avant l'émission.
+- *
+- * Deux temps, volontairement séparés :
+- *
+- *  ① EN TRANSACTION — dernier contrôle de vitesse et de fraîcheur, puis
+- *    passage en `queued`. Si la transaction échoue, rien n'a été envoyé.
+- *
+- *  ② HORS TRANSACTION — appel à la passerelle, puis `sent` ou `failed`.
+- *    Un appel réseau ne tient JAMAIS une transaction ouverte : flespi qui
+- *    répond en 10 s bloquerait la ligne et, avec elle, toute tentative
+- *    concurrente sur le même boîtier.
+- *
+- * En cas de doute sur l'aboutissement (réponse perdue, timeout), la commande
+- * est marquée `failed` avec le motif : le rétablissement reste possible, et
+- * l'état réel du relais se lit dans la télémétrie du boîtier.
+- */
+-@inject()
+-export class DispatchEngineCommand implements UseCase<
+-  DispatchEngineCommandInput,
+-  DispatchEngineCommandOutput
+-> {
+-  constructor(
+-    private readonly unitOfWork: UnitOfWork,
+-    private readonly commands: DeviceCommandRepository,
+-    private readonly vehicles: VehicleStateReader,
+-    private readonly devices: DeviceProviderReader,
+-    private readonly gateway: DeviceCommandGateway,
+-    private readonly clock: Clock,
+-    private readonly audit: AuditLogger,
+-    private readonly settings: DispatchSettings
+-  ) {}
+-
+-  //input
+-  async execute(
+-    input: DispatchEngineCommandInput
+-  ): Promise<Result<DispatchEngineCommandOutput, DomainError>> {
+-    const now = this.clock.now()
+-    const commandId = CommandId.from(input.commandId)
+-
+-    // ---- ① mise en file, sous transaction
+-    const prepare = await this.unitOfWork.run(
+-      async (tx) => {
+-        const command = await this.commands.findById(commandId, tx)
+-        if (!command) return Err(new NotFoundError('Commande', input.commandId))
+-
+-        const coupure = command.commandType === 'engine_cut'
+-        if (coupure && !this.settings.enabled) {
+-          return Err(new ImmobilizationDisabledError(command.vehicleId?.value ?? 'global'))
+-        }
+-
+-        const provider = await this.devices.readProviderDevice(command.deviceId.value)
+-        if (!provider?.externalDeviceId) {
+-          return Err(new DeviceNotEquippedError(command.deviceId.value))
+-        }
+-
+-        /**
+-         * Troisième contrôle de vitesse, sur la position la plus récente.
+-         * Il n'est exigé que pour la coupure : un rétablissement ne doit
+-         * jamais être bloqué par l'absence d'une position fraîche.
+-         */
+-        let vitesse = null
+-        if (coupure) {
+-          const state = command.vehicleId
+-            ? await this.vehicles.readSafetyState(command.vehicleId.value)
+-            : null
+-          if (!state) return Err(new NotFoundError('État véhicule', input.commandId))
+-
+-          const age = Math.floor((now.getTime() - state.recordedAt.getTime()) / 1000)
+-          if (age > this.settings.maxPositionAgeSeconds) {
+-            return Err(new StalePositionError(age, this.settings.maxPositionAgeSeconds))
+-          }
+-          vitesse = state.speed
+-        }
+-
+-        const queued = command.queue({ currentSpeed: vitesse, now })
+-        if (!queued.ok) return queued
+-
+-        await this.commands.save(command, tx)
+-        tx.collect(command.pullDomainEvents())
+-
+-        await this.audit.record({
+-          context: input.context,
+-          action: `security.${command.commandType}.queued`,
+-          resourceType: 'device_command',
+-          resourceId: command.id.value,
+-          after: command.snapshot() as unknown as Record<string, unknown>,
+-        })
+-
+-        return Ok({
+-          commandType: command.commandType,
+-          deviceId: command.deviceId.value,
+-          externalDeviceId: provider.externalDeviceId,
+-        })
+-      },
+-      { isolationLevel: 'serializable' }
+-    )
+-    if (!prepare.ok) return prepare
+-
+-    // ---- ② émission, HORS transaction
+-    const cible = {
+-      deviceId: prepare.value.deviceId,
+-      externalDeviceId: prepare.value.externalDeviceId,
+-      commandId: input.commandId,
+-    }
+-
+-    try {
+-      const envoi =
+-        prepare.value.commandType === 'engine_cut'
+-          ? await this.gateway.sendEngineCut(cible)
+-          : await this.gateway.sendEngineRestore(cible)
+-
+-      return this.conclure(input, commandId, (command) =>
+-        command.markSent({ providerCommandId: envoi.providerCommandId, now: this.clock.now() })
+-      )
+-    } catch (err) {
+-      const motif = (err as Error).message
+-      const echec = await this.conclure(input, commandId, (command) =>
+-        command.markFailed({ errorMessage: motif, now: this.clock.now() })
+-      )
+-      if (!echec.ok) return echec
+-      return Ok({ ...echec.value, providerCommandId: null })
+-    }
+-  }
+-
+-  //output
+-  /** Transaction courte : n'écrit QUE le résultat de l'émission. */
+-  private async conclure(
+-    input: DispatchEngineCommandInput,
+-    commandId: CommandId,
+-    transition: (
+-      command: Awaited<ReturnType<DeviceCommandRepository['findById']>> & object
+-    ) => Result<void>
+-  ): Promise<Result<DispatchEngineCommandOutput, DomainError>> {
+-    return this.unitOfWork.run(async (tx) => {
+-      const command = await this.commands.findById(commandId, tx)
+-      if (!command) return Err(new NotFoundError('Commande', input.commandId))
+-
+-      const applied = transition(command)
+-      if (!applied.ok) return applied
+-
+-      await this.commands.save(command, tx)
+-      tx.collect(command.pullDomainEvents())
+-
+-      const snapshot = command.snapshot()
+-      await this.audit.record({
+-        context: input.context,
+-        action: `security.${command.commandType}.${command.status}`,
+-        resourceType: 'device_command',
+-        resourceId: command.id.value,
+-        after: snapshot as unknown as Record<string, unknown>,
+-      })
+-
+-      return Ok({
+-        commandId: command.id.value,
+-        commandType: command.commandType,
+-        status: command.status,
+-        providerCommandId: snapshot.providerCommandId,
+-      })
+-    })
+-  }
+-}
+diff --git a/app/domain/security/use_cases/request_engine_restore.ts b/app/domain/security/use_cases/request_engine_restore.ts
+deleted file mode 100644
+index 47f6343..0000000
+--- a/app/domain/security/use_cases/request_engine_restore.ts
++++ /dev/null
+@@ -1,130 +0,0 @@
+-import { inject } from '@adonisjs/core'
+-import { Err, Ok, NotFoundError, type DomainError, type Result } from '#domain/kernel'
+-import type {
+-  AuditLogger,
+-  Clock,
+-  ExecutionContext,
+-  IdGenerator,
+-  UnitOfWork,
+-  UseCase,
+-} from '#application/ports'
+-import { DeviceCommand } from '#domain/security/entities/device_command'
+-import type { DeviceCommandRepository } from '#domain/security/repositories/device_command_repository'
+-import type { VehicleStateReader } from '#application/security/ports'
+-import {
+-  ActorId,
+-  CommandId,
+-  DeviceId,
+-  Reason,
+-  Speed,
+-  VehicleId,
+-} from '#domain/security/value_objects'
+-import { CommandAlreadyInFlightError, DeviceNotEquippedError } from '#domain/security/errors'
+-
+-export interface RequestEngineRestoreInput {
+-  context: ExecutionContext
+-  vehicleId: string
+-  reason: string
+-  origin?: 'manual' | 'policy' | 'api'
+-}
+-
+-export interface RequestEngineRestoreOutput {
+-  commandId: string
+-  status: string
+-  expiresAt: Date
+-}
+-
+-/**
+- * =========================================================================
+- *  CAS D'USAGE — Rétablir le moteur
+- * =========================================================================
+- *
+- * Symétrique de l'immobilisation, avec des garde-fous volontairement plus
+- * légers : rendre l'alimentation est l'opération SÛRE. Elle ne demande donc
+- * ni second valideur, ni position fraîche, ni véhicule à l'arrêt.
+- *
+- * Ce qui est conservé : le motif obligatoire, la traçabilité complète et la
+- * règle d'une seule commande en vol par boîtier (CM-09).
+- *
+- * `IMMOBILIZATION_ENABLED` ne conditionne PAS le rétablissement : si le
+- * réglage est coupé alors qu'un véhicule est immobilisé, il faut pouvoir le
+- * libérer.
+- */
+-@inject()
+-export class RequestEngineRestore implements UseCase<
+-  RequestEngineRestoreInput,
+-  RequestEngineRestoreOutput
+-> {
+-  constructor(
+-    private readonly unitOfWork: UnitOfWork,
+-    private readonly commands: DeviceCommandRepository,
+-    private readonly vehicles: VehicleStateReader,
+-    private readonly clock: Clock,
+-    private readonly ids: IdGenerator,
+-    private readonly audit: AuditLogger,
+-    private readonly settings: { safetySpeedKph: number; commandTtlMinutes: number }
+-  ) {}
+-
+-  async execute(
+-    input: RequestEngineRestoreInput
+-  ): Promise<Result<RequestEngineRestoreOutput, DomainError>> {
+-    const now = this.clock.now()
+-
+-    const reason = Reason.create(input.reason)
+-    if (!reason.ok) return reason
+-
+-    const state = await this.vehicles.readSafetyState(input.vehicleId)
+-    if (!state) return Err(new NotFoundError('Véhicule', input.vehicleId))
+-    if (!state.deviceId || !state.deviceHasRelay) {
+-      return Err(new DeviceNotEquippedError(state.deviceId ?? 'aucun'))
+-    }
+-
+-    const safetyLimit = Speed.fromKph(this.settings.safetySpeedKph)
+-    if (!safetyLimit.ok) return safetyLimit
+-
+-    return this.unitOfWork.run(
+-      async (tx) => {
+-        const deviceId = DeviceId.from(state.deviceId!)
+-
+-        // CM-09 : la coupure précédente doit être aboutie (acknowledged ou failed).
+-        const inFlight = await this.commands.findInFlightByDevice(deviceId, tx)
+-        if (inFlight) {
+-          return Err(new CommandAlreadyInFlightError(deviceId.value, inFlight.id.value))
+-        }
+-
+-        const created = DeviceCommand.requestEngineRestore({
+-          id: CommandId.from(this.ids.generate()),
+-          organizationId: input.context.organizationId,
+-          deviceId,
+-          vehicleId: VehicleId.from(input.vehicleId),
+-          reason: reason.value,
+-          origin: input.origin ?? 'manual',
+-          requestedBy: input.context.actorId ? ActorId.from(input.context.actorId) : null,
+-          safetySpeedLimit: safetyLimit.value,
+-          ttlMinutes: this.settings.commandTtlMinutes,
+-          now,
+-        })
+-        if (!created.ok) return created
+-
+-        const command = created.value
+-        await this.commands.save(command, tx)
+-        tx.collect(command.pullDomainEvents())
+-
+-        await this.audit.record({
+-          context: input.context,
+-          action: 'security.engine_restore.requested',
+-          resourceType: 'device_command',
+-          resourceId: command.id.value,
+-          after: command.snapshot() as unknown as Record<string, unknown>,
+-        })
+-
+-        return Ok({
+-          commandId: command.id.value,
+-          status: command.status,
+-          expiresAt: command.expiresAt,
+-        })
+-      },
+-      { isolationLevel: 'serializable' }
+-    )
+-  }
+-}
+diff --git a/start/limiter.ts b/start/limiter.ts
+index bc3a863..3a7d806 100644
+--- a/start/limiter.ts
++++ b/start/limiter.ts
+@@ -7,6 +7,11 @@ import type { HttpContext } from '@adonisjs/core/http'
+  * `sensitive` protège les opérations irréversibles (immobilisation). Le seuil
+  * est délibérément bas : dix demandes par minute et par utilisateur dépassent
+  * largement tout usage légitime, et un dépassement mérite d'être remonté.
++ *
++ * `deviceCommands` a sa PROPRE clé, et c'est le point important : tant que les
++ * commandes boîtier partageaient le compteur `sensitive`, quelques appels sur
++ * `/devices/:id/commands/*` suffisaient à bloquer une immobilisation pendant
++ * cinq minutes. Deux budgets séparés, deux usages indépendants.
+  */
+ export const throttle = {
+   api: limiter.define('api', (ctx: HttpContext) => {
+@@ -22,6 +27,18 @@ export const throttle = {
+       .usingKey(`sensitive_${ctx.auth?.user?.id ?? ctx.request.ip()}`)
+       .blockFor('5 minutes')
+   }),
++  /**
++   * Commandes envoyées à un boîtier : matériel réel, jamais une opération de
++   * masse — mais le tableau de bord en enchaîne légitimement quelques-unes
++   * (envoi puis `sync`). Pas de `blockFor` : le dépassement se résorbe à la
++   * fenêtre suivante au lieu de condamner l'utilisateur pour cinq minutes.
++   */
++  deviceCommands: limiter.define('deviceCommands', (ctx: HttpContext) => {
++    return limiter
++      .allowRequests(30)
++      .every('1 minute')
++      .usingKey(`device_commands_${ctx.auth?.user?.id ?? ctx.request.ip()}`)
++  }),
+   auth: limiter.define('auth', (ctx: HttpContext) => {
+     return limiter
+       .allowRequests(5)
+diff --git a/start/routes.ts b/start/routes.ts
+index dbfd145..328a042 100644
+--- a/start/routes.ts
++++ b/start/routes.ts
+@@ -1,9 +1,9 @@
+ // start/routes.ts
+ import router from '@adonisjs/core/services/router'
+-import transmit from '@adonisjs/transmit/services/main'
+ import { authRoutes } from '#start/routes/auth'
+ import { clientRoutes } from '#start/routes/client_routes'
+ import { adminRoutes } from '#start/routes/admin_routes'
++import { flespiGatewaysRoutes } from '#start/routes/admin/admin_flespi_gateways'
+ 
+ /**
+  * Routage de l'API — versionné dès le premier jour.
+@@ -16,7 +16,11 @@ router.where('memberId', router.matchers.uuid())
+ router.where('organizationId', router.matchers.uuid())
+ router.where('commandId', router.matchers.uuid())
+ 
+-transmit.registerRoutes() // UNIQUEMENT ici
++/**
++ * Le temps réel (SSE) est enregistré dans `start/transmit.ts`, avec le
++ * cloisonnement de ses canaux : les deux vont ensemble, et les séparer est
++ * précisément ce qui a laissé les canaux ouverts.
++ */
+ 
+ router.get('/health', async ({ response }) => {
+   return response.ok({ status: 'ok', service: 'sisbm-core', time: new Date().toISOString() })
+@@ -27,5 +31,12 @@ router
+     authRoutes() // login public ; me/logout protégés dans le fichier
+     clientRoutes() // auth()
+     adminRoutes() // auth() + platformAdmin()
++    /**
++     * Passerelles flespi : URL historique `/api/v1/flespi/*` (consommée par le
++     * tableau de bord d'administration), mais périmètre PLATEFORME. Déclarées
++     * ici, et non dans `clientRoutes()`, pour que le fichier ne laisse aucun
++     * doute sur qui y a accès.
++     */
++    flespiGatewaysRoutes() // auth() + platformAdmin()
+   })
+   .prefix('/api/v1')
+diff --git a/start/routes/admin/admin_device.ts b/start/routes/admin/admin_device.ts
+index a09df04..7273a7c 100644
+--- a/start/routes/admin/admin_device.ts
++++ b/start/routes/admin/admin_device.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ 
+ const DeviceController = () => import('#presentation/http/controllers/fleet/device_controller')
+ const CommandController = () =>
+diff --git a/start/routes/admin/admin_device_command.ts b/start/routes/admin/admin_device_command.ts
+index 484d75a..cc9511e 100644
+--- a/start/routes/admin/admin_device_command.ts
++++ b/start/routes/admin/admin_device_command.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ import { throttle } from '#start/limiter'
+ const CommandController = () =>
+   import('#presentation/http/controllers/fleet/device_command_controller')
+@@ -15,7 +14,8 @@ const COMMANDES_METIER =
+ 
+ export const adminDeviceCommandsGroup = () => {
+   /**
+-   * Agissent sur du MATÉRIEL RÉEL : même limiteur que les routes client.
++   * Agissent sur du MATÉRIEL RÉEL : même limiteur que les routes client,
++   * distinct de celui de `/security/*` (cf. start/limiter.ts).
+    * Règle du tableau de bord : chaque commande envoyée est suivie d'un
+    * `POST /admin/devices/:id/commands/sync`.
+    */
+@@ -41,5 +41,5 @@ export const adminDeviceCommandsGroup = () => {
+     })
+     .prefix('/devices')
+     .where('id', router.matchers.uuid())
+-    .use(throttle.sensitive)
++    .use(throttle.deviceCommands)
+ }
+diff --git a/start/routes/admin/admin_device_group.ts b/start/routes/admin/admin_device_group.ts
+index 0ac7487..1b19b44 100644
+--- a/start/routes/admin/admin_device_group.ts
++++ b/start/routes/admin/admin_device_group.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ 
+ const DeviceGroupController = () =>
+   import('#presentation/http/controllers/fleet/device_group_controller')
+diff --git a/start/routes/client/flespi_gateways.ts b/start/routes/admin/admin_flespi_gateways.ts
+similarity index 76%
+rename from start/routes/client/flespi_gateways.ts
+rename to start/routes/admin/admin_flespi_gateways.ts
+index 612cf21..105ee2e 100644
+--- a/start/routes/client/flespi_gateways.ts
++++ b/start/routes/admin/admin_flespi_gateways.ts
+@@ -3,6 +3,15 @@ import { middleware } from '#start/kernel'
+ const FlespiChannelController = () =>
+   import('#presentation/http/controllers/fleet/flespi_channel_controller')
+ 
++/**
++ * Passerelles flespi — PÉRIMÈTRE PLATEFORME.
++ *
++ * Le jeton flespi ne quitte jamais le serveur : ces routes relaient l'API
++ * flespi (canaux, protocoles, journaux) et n'ont aucun sens pour un client.
++ * L'URL reste `/api/v1/flespi/*` — elle est déjà consommée par le tableau de
++ * bord d'administration — mais la déclaration porte ses deux middlewares,
++ * sans dépendre du groupe qui l'appelle.
++ */
+ export const flespiGatewaysRoutes = () => {
+   router
+     .group(() => {
+@@ -30,5 +39,5 @@ export const flespiGatewaysRoutes = () => {
+       router.get('/channels/:id/idents', [FlespiChannelController, 'idents']).where('id', /^\d+$/)
+     })
+     .prefix('/flespi')
+-    .use(middleware.platformAdmin())
++    .use([middleware.auth(), middleware.platformAdmin()])
+ }
+diff --git a/start/routes/admin/admin_organizations.ts b/start/routes/admin/admin_organizations.ts
+index b2d110d..4e72d9d 100644
+--- a/start/routes/admin/admin_organizations.ts
++++ b/start/routes/admin/admin_organizations.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ const OrganizationController = () =>
+   import('#presentation/http/controllers/identity/organization_controller')
+ const AuditLogController = () => import('#presentation/http/controllers/audit/audit_log_controller')
+diff --git a/start/routes/admin/admin_users.ts b/start/routes/admin/admin_users.ts
+index adea447..cc03911 100644
+--- a/start/routes/admin/admin_users.ts
++++ b/start/routes/admin/admin_users.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ 
+ const UserController = () => import('#presentation/http/controllers/identity/user_controller')
+ 
+diff --git a/start/routes/admin/admin_utils.ts b/start/routes/admin/admin_utils.ts
+index b9b3d56..37e06ca 100644
+--- a/start/routes/admin/admin_utils.ts
++++ b/start/routes/admin/admin_utils.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ const OrganizationController = () =>
+   import('#presentation/http/controllers/identity/organization_controller')
+ const CommandController = () =>
+diff --git a/start/routes/admin/admin_vehicle.ts b/start/routes/admin/admin_vehicle.ts
+index 74f66dd..ad5bf3c 100644
+--- a/start/routes/admin/admin_vehicle.ts
++++ b/start/routes/admin/admin_vehicle.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ 
+ const VehicleController = () => import('#presentation/http/controllers/fleet/vehicle_controller')
+ 
+diff --git a/start/routes/admin/admin_vehicle_group.ts b/start/routes/admin/admin_vehicle_group.ts
+index 6dd267a..1cf3e0e 100644
+--- a/start/routes/admin/admin_vehicle_group.ts
++++ b/start/routes/admin/admin_vehicle_group.ts
+@@ -1,5 +1,4 @@
+ import router from '@adonisjs/core/services/router'
+-import { middleware } from '#start/kernel'
+ 
+ const VehicleGroupController = () =>
+   import('#presentation/http/controllers/fleet/vehicle_group_controller')
+diff --git a/start/routes/client/device_commands.ts b/start/routes/client/device_commands.ts
+index d4562a7..9380a07 100644
+--- a/start/routes/client/device_commands.ts
++++ b/start/routes/client/device_commands.ts
+@@ -19,11 +19,29 @@ const CommandController = () =>
+ const platformOnly = (operation: string) => (ctx: HttpContext) => reservedToPlatform(ctx, operation)
+ 
+ export const deviceCommandsRoutes = () => {
++  /**
++   * LECTURES — groupe SÉPARÉ, limiteur large (`api`, 120/min).
++   *
++   * Elles étaient dans le groupe `sensitive` : dix consultations du journal
++   * suffisaient à bloquer toute immobilisation pendant cinq minutes, le
++   * compteur étant partagé par clé. Un tableau de bord qui rafraîchit
++   * l'historique déclenchait donc le blocage d'une coupure moteur légitime.
++   * Les sortir du groupe d'écriture est ce qui les empêche aussi de consommer
++   * le budget des commandes.
++   */
+   router
+     .group(() => {
+       router.get('/:id/commands', [CommandController, 'catalog'])
+       router.get('/:id/commands/history', [CommandController, 'history'])
+       router.get('/:id/commands/results', [CommandController, 'results'])
++    })
++    .prefix('/devices')
++    .where('id', router.matchers.uuid())
++    .use(throttle.api)
++
++  // ---- ÉCRITURES : matériel réel, budget `deviceCommands`
++  router
++    .group(() => {
+       router.post('/:id/commands/sync', [CommandController, 'sync'])
+       router
+         .delete('/:id/commands/:commandId', [CommandController, 'cancel'])
+@@ -78,5 +96,10 @@ export const deviceCommandsRoutes = () => {
+     })
+     .prefix('/devices')
+     .where('id', router.matchers.uuid())
+-    .use(throttle.sensitive)
++    /**
++     * Budget PROPRE aux commandes boîtier : `throttle.sensitive` reste réservé
++     * à `/security/*`, pour qu'une rafale de commandes n'empêche jamais une
++     * coupure moteur légitime.
++     */
++    .use(throttle.deviceCommands)
+ }
+diff --git a/start/routes/client_routes.ts b/start/routes/client_routes.ts
+index 76cafd2..2dd88a1 100644
+--- a/start/routes/client_routes.ts
++++ b/start/routes/client_routes.ts
+@@ -12,7 +12,6 @@ import { vehicleRoutes } from '#start/routes/client/vehicles'
+ import { vehicleGroupRoutes } from '#start/routes/client/vehicle_group'
+ import { getUtilsRoutes } from '#start/routes/client/utils'
+ import { SecurityAndImmobilizationRoutes } from '#start/routes/client/security_immobilizations'
+-import { flespiGatewaysRoutes } from './client/flespi_gateways.ts'
+ 
+ export const clientRoutes = () => {
+   router
+@@ -29,7 +28,6 @@ export const clientRoutes = () => {
+       vehicleRoutes()
+       getUtilsRoutes()
+       SecurityAndImmobilizationRoutes()
+-      flespiGatewaysRoutes()
+     })
+     .use(middleware.auth())
+ }
+diff --git a/start/transmit.ts b/start/transmit.ts
+new file mode 100644
+index 0000000..7577ea9
+--- /dev/null
++++ b/start/transmit.ts
+@@ -0,0 +1,60 @@
++import transmit from '@adonisjs/transmit/services/main'
++import type { HttpContext } from '@adonisjs/core/http'
++import { isPlatformOperator } from '#domain/identity/role_policy'
++import { permissionsOf } from '#presentation/http/support/authorize'
++
++/**
++ * =========================================================================
++ *  TEMPS RÉEL (SSE) — enregistrement ET cloisonnement des canaux
++ * =========================================================================
++ *
++ * `transmit.registerRoutes()` expose trois routes HORS `/api/v1` :
++ *
++ *     GET  /__transmit/events        ouverture du flux
++ *     POST /__transmit/subscribe     abonnement à un canal
++ *     POST /__transmit/unsubscribe
++ *
++ * Elles ne traversent AUCUN middleware de route : `auth()` ne peut pas y être
++ * posé, car `EventSource` (navigateur) n'envoie pas d'en-tête `Authorization`
++ * sur l'ouverture du flux. Sans contrôle au niveau du CANAL, n'importe qui
++ * pouvait donc s'abonner à `org/<uuid>/positions` et suivre en direct les
++ * positions GPS d'une flotte — sans compte.
++ *
++ * Le contrôle est donc fait là où la donnée est réellement demandée :
++ * à l'abonnement. Le flux `/__transmit/events` reste ouvert, mais il ne
++ * transporte que les canaux dont l'abonnement a été accordé.
++ *
++ * Deux règles :
++ *   ① `org/:organizationId/positions` — l'acteur doit être authentifié ET
++ *     appartenir à cette organisation (le joker `*` voit tout).
++ *   ② tout autre canal est REFUSÉ par défaut. Un canal ajouté demain sans
++ *     règle explicite est fermé, pas ouvert.
++ */
++
++/**
++ * Identifie l'appelant à partir du jeton porté par la requête d'abonnement.
++ * `initialize_auth_middleware` est un middleware de ROUTER (cf. start/kernel) :
++ * `ctx.auth` est donc disponible ici, même sans `auth()` sur la route.
++ */
++async function acteur(ctx: HttpContext) {
++  await ctx.auth.authenticate() // lève si aucun jeton valide → abonnement refusé
++  const user = ctx.auth.getUserOrFail() as { organizationId: string }
++  return { organizationId: user.organizationId, permissions: await permissionsOf(ctx) }
++}
++
++transmit.authorize<{ organizationId: string }>(
++  'org/:organizationId/positions',
++  async (ctx: HttpContext, { organizationId }) => {
++    const { organizationId: sienne, permissions } = await acteur(ctx)
++    return isPlatformOperator(permissions) || sienne === organizationId
++  }
++)
++
++/**
++ * Refus par défaut. `matchit` classe les motifs du plus précis au moins
++ * précis : la règle ci-dessus gagne sur ce joker, qui ne reçoit donc que les
++ * canaux non déclarés.
++ */
++transmit.authorize('*', async () => false)
++
++transmit.registerRoutes()

@@ -104,19 +104,6 @@ export type ScannedRoutes = {
     'immobilization.validate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.dispatch': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.restore': { paramsTuple?: []; params?: {} }
-    'flespi_channel.health': { paramsTuple?: []; params?: {} }
-    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
-    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
-    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
-    'flespi_channel.index': { paramsTuple?: []; params?: {} }
-    'flespi_channel.store': { paramsTuple?: []; params?: {} }
-    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -188,6 +175,19 @@ export type ScannedRoutes = {
     'admin.command.index_all': { paramsTuple?: []; params?: {} }
     'admin.audit_log.index': { paramsTuple?: []; params?: {} }
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
+    'flespi_channel.health': { paramsTuple?: []; params?: {} }
+    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
+    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
+    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
+    'flespi_channel.index': { paramsTuple?: []; params?: {} }
+    'flespi_channel.store': { paramsTuple?: []; params?: {} }
+    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   GET: {
     'event_stream': { paramsTuple?: []; params?: {} }
@@ -234,16 +234,6 @@ export type ScannedRoutes = {
     'command.index': { paramsTuple?: []; params?: {} }
     'organization.daily_activity': { paramsTuple?: []; params?: {} }
     'organization.overview': { paramsTuple?: []; params?: {} }
-    'flespi_channel.health': { paramsTuple?: []; params?: {} }
-    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
-    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
-    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
-    'flespi_channel.index': { paramsTuple?: []; params?: {} }
-    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -282,6 +272,16 @@ export type ScannedRoutes = {
     'admin.command.index_all': { paramsTuple?: []; params?: {} }
     'admin.audit_log.index': { paramsTuple?: []; params?: {} }
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
+    'flespi_channel.health': { paramsTuple?: []; params?: {} }
+    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
+    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
+    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
+    'flespi_channel.index': { paramsTuple?: []; params?: {} }
+    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   HEAD: {
     'event_stream': { paramsTuple?: []; params?: {} }
@@ -328,16 +328,6 @@ export type ScannedRoutes = {
     'command.index': { paramsTuple?: []; params?: {} }
     'organization.daily_activity': { paramsTuple?: []; params?: {} }
     'organization.overview': { paramsTuple?: []; params?: {} }
-    'flespi_channel.health': { paramsTuple?: []; params?: {} }
-    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
-    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
-    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
-    'flespi_channel.index': { paramsTuple?: []; params?: {} }
-    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -376,6 +366,16 @@ export type ScannedRoutes = {
     'admin.command.index_all': { paramsTuple?: []; params?: {} }
     'admin.audit_log.index': { paramsTuple?: []; params?: {} }
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
+    'flespi_channel.health': { paramsTuple?: []; params?: {} }
+    'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
+    'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
+    'flespi_channel.device_type': { paramsTuple: [ParamValue,ParamValue]; params: {'protocol': ParamValue,'typeId': ParamValue} }
+    'flespi_channel.index': { paramsTuple?: []; params?: {} }
+    'flespi_channel.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.logs': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   POST: {
     'subscribe': { paramsTuple?: []; params?: {} }
@@ -419,7 +419,6 @@ export type ScannedRoutes = {
     'immobilization.validate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.dispatch': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.restore': { paramsTuple?: []; params?: {} }
-    'flespi_channel.store': { paramsTuple?: []; params?: {} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.command.sync_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -438,6 +437,7 @@ export type ScannedRoutes = {
     'admin.user.store_all': { paramsTuple?: []; params?: {} }
     'admin.user.suspend_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.activate_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.store': { paramsTuple?: []; params?: {} }
   }
   DELETE: {
     'command.cancel': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'commandId': ParamValue} }
@@ -449,7 +449,6 @@ export type ScannedRoutes = {
     'device.unassign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'user.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vehicle.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.command.cancel_all': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'commandId': ParamValue} }
@@ -459,6 +458,7 @@ export type ScannedRoutes = {
     'admin.device.destroy_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device.unassign_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.destroy_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   PATCH: {
     'device_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -467,13 +467,13 @@ export type ScannedRoutes = {
     'organization.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'user.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vehicle.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.vehicle_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.vehicle.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.organization.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
 }
 declare module '@adonisjs/core/types/http' {

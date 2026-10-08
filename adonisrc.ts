@@ -45,7 +45,12 @@ export default defineConfig({
   | Préchargements
   |--------------------------------------------------------------------------
   */
-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
+  preloads: [
+    () => import('./start/routes.js'),
+    () => import('./start/kernel.js'),
+    // Canaux temps réel : enregistrement des routes + autorisation d'abonnement.
+    () => import('./start/transmit.js'),
+  ],
 
   /*
   |--------------------------------------------------------------------------

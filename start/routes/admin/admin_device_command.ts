@@ -1,5 +1,4 @@
 import router from '@adonisjs/core/services/router'
-import { middleware } from '#start/kernel'
 import { throttle } from '#start/limiter'
 const CommandController = () =>
   import('#presentation/http/controllers/fleet/device_command_controller')
@@ -15,7 +14,8 @@ const COMMANDES_METIER =
 
 export const adminDeviceCommandsGroup = () => {
   /**
-   * Agissent sur du MATÉRIEL RÉEL : même limiteur que les routes client.
+   * Agissent sur du MATÉRIEL RÉEL : même limiteur que les routes client,
+   * distinct de celui de `/security/*` (cf. start/limiter.ts).
    * Règle du tableau de bord : chaque commande envoyée est suivie d'un
    * `POST /admin/devices/:id/commands/sync`.
    */
@@ -41,5 +41,5 @@ export const adminDeviceCommandsGroup = () => {
     })
     .prefix('/devices')
     .where('id', router.matchers.uuid())
-    .use(throttle.sensitive)
+    .use(throttle.deviceCommands)
 }

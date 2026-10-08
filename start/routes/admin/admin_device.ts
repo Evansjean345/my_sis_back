@@ -1,5 +1,4 @@
 import router from '@adonisjs/core/services/router'
-import { middleware } from '#start/kernel'
 
 const DeviceController = () => import('#presentation/http/controllers/fleet/device_controller')
 const CommandController = () =>

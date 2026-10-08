@@ -1,5 +1,4 @@
 import router from '@adonisjs/core/services/router'
-import { middleware } from '#start/kernel'
 const OrganizationController = () =>
   import('#presentation/http/controllers/identity/organization_controller')
 const AuditLogController = () => import('#presentation/http/controllers/audit/audit_log_controller')

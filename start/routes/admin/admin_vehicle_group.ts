@@ -1,5 +1,4 @@
 import router from '@adonisjs/core/services/router'
-import { middleware } from '#start/kernel'
 
 const VehicleGroupController = () =>
   import('#presentation/http/controllers/fleet/vehicle_group_controller')

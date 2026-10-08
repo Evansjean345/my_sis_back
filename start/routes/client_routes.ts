@@ -12,7 +12,6 @@ import { vehicleRoutes } from '#start/routes/client/vehicles'
 import { vehicleGroupRoutes } from '#start/routes/client/vehicle_group'
 import { getUtilsRoutes } from '#start/routes/client/utils'
 import { SecurityAndImmobilizationRoutes } from '#start/routes/client/security_immobilizations'
-import { flespiGatewaysRoutes } from './client/flespi_gateways.ts'
 
 export const clientRoutes = () => {
   router
@@ -29,7 +28,6 @@ export const clientRoutes = () => {
       vehicleRoutes()
       getUtilsRoutes()
       SecurityAndImmobilizationRoutes()
-      flespiGatewaysRoutes()
     })
     .use(middleware.auth())
 }

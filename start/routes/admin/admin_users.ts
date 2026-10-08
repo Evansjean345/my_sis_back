@@ -1,5 +1,4 @@
 import router from '@adonisjs/core/services/router'
-import { middleware } from '#start/kernel'
 
 const UserController = () => import('#presentation/http/controllers/identity/user_controller')
 

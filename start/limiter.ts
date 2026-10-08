@@ -7,6 +7,11 @@ import type { HttpContext } from '@adonisjs/core/http'
  * `sensitive` protège les opérations irréversibles (immobilisation). Le seuil
  * est délibérément bas : dix demandes par minute et par utilisateur dépassent
  * largement tout usage légitime, et un dépassement mérite d'être remonté.
+ *
+ * `deviceCommands` a sa PROPRE clé, et c'est le point important : tant que les
+ * commandes boîtier partageaient le compteur `sensitive`, quelques appels sur
+ * `/devices/:id/commands/*` suffisaient à bloquer une immobilisation pendant
+ * cinq minutes. Deux budgets séparés, deux usages indépendants.
  */
 export const throttle = {
   api: limiter.define('api', (ctx: HttpContext) => {
@@ -21,6 +26,18 @@ export const throttle = {
       .every('1 minute')
       .usingKey(`sensitive_${ctx.auth?.user?.id ?? ctx.request.ip()}`)
       .blockFor('5 minutes')
+  }),
+  /**
+   * Commandes envoyées à un boîtier : matériel réel, jamais une opération de
+   * masse — mais le tableau de bord en enchaîne légitimement quelques-unes
+   * (envoi puis `sync`). Pas de `blockFor` : le dépassement se résorbe à la
+   * fenêtre suivante au lieu de condamner l'utilisateur pour cinq minutes.
+   */
+  deviceCommands: limiter.define('deviceCommands', (ctx: HttpContext) => {
+    return limiter
+      .allowRequests(30)
+      .every('1 minute')
+      .usingKey(`device_commands_${ctx.auth?.user?.id ?? ctx.request.ip()}`)
   }),
   auth: limiter.define('auth', (ctx: HttpContext) => {
     return limiter

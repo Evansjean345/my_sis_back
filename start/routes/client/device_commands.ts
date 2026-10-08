@@ -19,11 +19,29 @@ const CommandController = () =>
 const platformOnly = (operation: string) => (ctx: HttpContext) => reservedToPlatform(ctx, operation)
 
 export const deviceCommandsRoutes = () => {
+  /**
+   * LECTURES — groupe SÉPARÉ, limiteur large (`api`, 120/min).
+   *
+   * Elles étaient dans le groupe `sensitive` : dix consultations du journal
+   * suffisaient à bloquer toute immobilisation pendant cinq minutes, le
+   * compteur étant partagé par clé. Un tableau de bord qui rafraîchit
+   * l'historique déclenchait donc le blocage d'une coupure moteur légitime.
+   * Les sortir du groupe d'écriture est ce qui les empêche aussi de consommer
+   * le budget des commandes.
+   */
   router
     .group(() => {
       router.get('/:id/commands', [CommandController, 'catalog'])
       router.get('/:id/commands/history', [CommandController, 'history'])
       router.get('/:id/commands/results', [CommandController, 'results'])
+    })
+    .prefix('/devices')
+    .where('id', router.matchers.uuid())
+    .use(throttle.api)
+
+  // ---- ÉCRITURES : matériel réel, budget `deviceCommands`
+  router
+    .group(() => {
       router.post('/:id/commands/sync', [CommandController, 'sync'])
       router
         .delete('/:id/commands/:commandId', [CommandController, 'cancel'])
@@ -78,5 +96,10 @@ export const deviceCommandsRoutes = () => {
     })
     .prefix('/devices')
     .where('id', router.matchers.uuid())
-    .use(throttle.sensitive)
+    /**
+     * Budget PROPRE aux commandes boîtier : `throttle.sensitive` reste réservé
+     * à `/security/*`, pour qu'une rafale de commandes n'empêche jamais une
+     * coupure moteur légitime.
+     */
+    .use(throttle.deviceCommands)
 }
