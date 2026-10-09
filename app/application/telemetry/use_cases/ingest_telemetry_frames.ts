@@ -58,6 +58,23 @@ export interface IngestTelemetryOutput {
    * diagnosticable.
    */
   rejectedReasons: Record<string, number>
+  /**
+   * Points et clôtures livrés DANS LE DÉSORDRE (rejeu Store & Forward).
+   *
+   * Ils sont persistés dans `positions` mais écartés des agrégats du trajet.
+   * Sans ce compteur, le worker ne distingue pas « boîtier qui rattrape son
+   * retard » de « trames perdues », alors que le premier est normal au sortir
+   * d'une zone blanche.
+   */
+  tripOutOfOrder: number
+  /**
+   * Trajets clôturés par EXPIRATION : le contact OFF ne nous est jamais
+   * parvenu (perdu, ou rejoué dans le désordre et refusé). Sans cette
+   * clôture, le trajet restait ouvert indéfiniment et absorbait tous les
+   * trajets suivants du véhicule — `isStale()` existait mais n'était appelé
+   * nulle part.
+   */
+  tripsExpired: number
 }
 
 //interface pour le seuil de qualité lié au service de la telemetrie
@@ -113,6 +130,8 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
       tripsClosed: 0,
       duplicates: 0,
       rejectedReasons: {},
+      tripOutOfOrder: 0,
+      tripsExpired: 0,
     }
     if (input.frames.length === 0) return Ok(out)
 
@@ -335,12 +354,33 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     out: IngestTelemetryOutput
   ): Promise<void> {
     const vehicleId = VehicleId.from(device.vehicleId!)
+    const now = this.clock.now()
     let trip = await this.trips.findOpenByVehicle(vehicleId, tx)
 
     for (const l of lectures) {
       if (!l.countsForTrip) continue
 
       if (l.ignitionState === 'on') {
+        /**
+         * Trajet ouvert depuis trop longtemps : son contact OFF est perdu.
+         * On le clôt sur son DERNIER POINT — jamais sur `now`, qui produirait
+         * une durée incluant l'immobilisation — puis on en ouvre un nouveau.
+         */
+        if (trip && trip.isStale(now, this.settings.tripMaxDurationHours)) {
+          const expire = trip.close({
+            at: trip.lastPointAt,
+            reason: 'timeout',
+            minDistanceMeters: this.settings.tripMinDistanceMeters,
+          })
+          if (expire.ok) {
+            await this.trips.save(trip, tx)
+            tx.collect(trip.pullDomainEvents())
+            out.tripsClosed += 1
+            out.tripsExpired += 1
+            trip = null
+          }
+        }
+
         if (!trip) {
           trip = Trip.start({
             id: TripId.from(this.ids.generate()),
@@ -359,29 +399,47 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
             }),
           ])
         } else {
-          trip.addPosition({
+          // Résultat TRAITÉ : un point antérieur au dernier point est refusé
+          // par l'agrégat. L'ignorer laissait croire à une accumulation
+          // réussie et masquait les rejeux.
+          const ajout = trip.addPosition({
             at: l.recordedAt,
             location: l.coordinates,
             speed: l.speed,
             idleThresholdKph: this.settings.idleSpeedThresholdKph,
           })
+          if (!ajout.ok) out.tripOutOfOrder += 1
         }
         continue
       }
 
       if (l.ignitionState === 'off' && trip) {
-        trip.addPosition({
+        const ajout = trip.addPosition({
           at: l.recordedAt,
           location: l.coordinates,
           speed: l.speed,
           //seuil de ralenti en kph
           idleThresholdKph: this.settings.idleSpeedThresholdKph,
         })
-        trip.close({
+        if (!ajout.ok) out.tripOutOfOrder += 1
+
+        /**
+         * Contact OFF plus ANCIEN que le dernier point : le trajet reste
+         * OUVERT. Le fermer sur cette date produirait `ended_at < started_at`
+         * — la ligne que PostgreSQL refusait, qui bloquait toute l'ingestion.
+         * Il sera clôturé par le prochain OFF cohérent, ou par l'expiration
+         * (`isStale` / TRIP_MAX_DURATION_HOURS).
+         */
+        const cloture = trip.close({
           at: l.recordedAt,
           reason: 'ignition_off',
           minDistanceMeters: this.settings.tripMinDistanceMeters,
         })
+        if (!cloture.ok) {
+          out.tripOutOfOrder += 1
+          continue
+        }
+
         await this.trips.save(trip, tx)
         tx.collect(trip.pullDomainEvents())
         tx.collect([

@@ -53,11 +53,34 @@ export interface MqttTransportConfig {
 //Code de standarisation SQL
 const SQLSTATE_DEFINITIF = ['42', '3F', '3D', '22', '23', '28']
 
+/**
+ * Parmi les erreurs définitives, celles qui ne concernent QUE CETTE TRAME :
+ *
+ *   22 donnée invalide (date hors plage, uuid mal formé…)
+ *   23 contrainte violée (CHECK, clé étrangère, unicité)
+ *
+ * La plateforme va très bien ; c'est le contenu du message qui est
+ * inexploitable. Bloquer la flotte entière sur une trame est le mauvais
+ * arbitrage : une position aberrante d'un boîtier ne doit pas empêcher les
+ * cent autres d'être ingérées. On journalise, on ACQUITTE, on continue.
+ *
+ * `42` (table ou colonne inconnue), `3F`/`3D` (schéma absent) et `28`
+ * (authentification) restent des arrêts bruyants : là, c'est la base ou la
+ * configuration qui est en cause, et toutes les trames échoueront.
+ */
+const SQLSTATE_TRAME = ['22', '23']
+
 //fonction pour gérer le code d'erreur definitif du protocol mqtt
 function erreurDefinitive(err: unknown): string | null {
   if (typeof err !== 'object' || err === null || !('code' in err)) return null
   const code = String((err as { code: unknown }).code)
   return SQLSTATE_DEFINITIF.includes(code.slice(0, 2)) ? code : null
+}
+
+/** Erreur imputable à la trame elle-même : rejouer ne changera rien. */
+function erreurDeTrame(err: unknown): string | null {
+  const code = erreurDefinitive(err)
+  return code && SQLSTATE_TRAME.includes(code.slice(0, 2)) ? code : null
 }
 
 /**
@@ -263,6 +286,24 @@ export class MqttTelemetryTransport implements TelemetryTransport {
            * observé — « abonnement refusé : Connection closed » suivi d'un
            * délai de connexion dépassé — a pour cause ce gel, pas le réseau.
            */
+          /**
+           * Trame intraitable (contrainte violée, donnée invalide) : on la
+           * met en quarantaine et on l'ACQUITTE. Sans cela, le message
+           * revenait à chaque redémarrage et l'ingestion ne redémarrait
+           * jamais — une seule trame suffisait à arrêter toute la flotte.
+           */
+          const trame = erreurDeTrame(err)
+          if (trame) {
+            logger.error(
+              { err, topic, sqlstate: trame },
+              `[mqtt] trame mise en quarantaine (SQLSTATE ${trame}) : la base refuse ` +
+                'cette donnée, la rejouer ne changerait rien. Message ACQUITTÉ pour ' +
+                "ne pas bloquer le flux — corriger la cause puis rejouer depuis l'historique."
+            )
+            done()
+            return
+          }
+
           const sqlstate = erreurDefinitive(err)
           if (sqlstate || essai >= maxEssais) {
             const motif = sqlstate

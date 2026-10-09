@@ -171,6 +171,24 @@ export class Trip extends AggregateRoot<TripId> {
       return Err(new TripAlreadyClosedError(this.id.value))
     }
 
+    /**
+     * CLÔTURE ANTÉRIEURE AU DERNIER POINT : REFUSÉE.
+     *
+     * `addPosition` se gardait déjà des points dans le désordre, mais pas
+     * `close` : un contact OFF rejoué par Store & Forward, plus ancien que le
+     * trajet ouvert, écrivait `ended_at < started_at` et une durée négative.
+     * PostgreSQL rejetait la ligne (`ck_trips_dates`, SQLSTATE 23514), la
+     * trame n'était jamais acquittée, et le même message repassait à chaque
+     * redémarrage : l'ingestion restait bloquée sur une seule trame.
+     *
+     * L'invariant appartient ici. La contrainte SQL reste le dernier rempart,
+     * comme pour CM-07 : le domaine produit un message exploitable, la base
+     * garantit qu'aucun chemin ne peut écrire un intervalle impossible.
+     */
+    if (input.at.getTime() < this.props.lastPointAt.getTime()) {
+      return Err(new OutOfOrderPositionError(input.at, this.props.lastPointAt))
+    }
+
     this.props.status = 'closed'
     this.props.endedAt = input.at
     this.props.closeReason = input.reason
@@ -223,6 +241,10 @@ export class Trip extends AggregateRoot<TripId> {
   }
   get positionsCount(): number {
     return this.props.positionsCount
+  }
+  /** Dernier point accumulé : borne minimale d'une clôture valide. */
+  get lastPointAt(): Date {
+    return this.props.lastPointAt
   }
 
   get durationSeconds(): number | null {
