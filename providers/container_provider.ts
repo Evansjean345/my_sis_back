@@ -188,7 +188,6 @@ export default class ContainerProvider {
         new LucidVehicleStateReader(),
         new SystemClock(),
         new LucidAuditLogger(),
-        //à supprimer
         immo.maxPositionAgeSeconds
       )
     })

@@ -131,8 +131,12 @@ services:
       # `:ro` — le broker ne doit jamais réécrire sa propre configuration
       # ni son fichier de mots de passe.
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/acl:/mosquitto/config/acl:ro
-      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      # Chemins RÉELS du dépôt : les deux fichiers sont dans `mosquitto/config/`.
+      # Montés depuis `./mosquitto/acl` (inexistant), Docker crée un RÉPERTOIRE
+      # vide à la place et mosquitto refuse de démarrer — `allow_anonymous` est
+      # à false et il ne trouve aucun fichier de mots de passe.
+      - ./mosquitto/config/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/config/passwd:/mosquitto/config/passwd:ro
       - mosquitto_data:/mosquitto/data
     healthcheck:
       # -E : se connecte puis quitte aussitôt. Vérifie que le broker RÉPOND,

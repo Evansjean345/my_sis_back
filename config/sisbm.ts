@@ -43,7 +43,6 @@ const sisbmConfig = {
     commandTtlMinutes: env.get('IMMOBILIZATION_COMMAND_TTL_MINUTES', 15),
     /** Une position plus ancienne ne prouve plus que le véhicule est à l'arrêt. */
     //supprimer dans les use_cases
-    //à supprimer dans les singletons
     maxPositionAgeSeconds: env.get('IMMOBILIZATION_MAX_POSITION_AGE_SECONDS', 120),
     //maxPositionAgeSeconds: env.get('IMMOBILIZATION_MAX_POSITION_AGE_SECONDS'),
   },
