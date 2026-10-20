@@ -25,6 +25,19 @@ export interface IngestMessageRepository {
     tx?: TransactionScope
   ): Promise<void>
 
+  /**
+   * Trames journalisées mais jamais traitées (`status = 'pending'`).
+   *
+   * C'est le filet de la durabilité : une trame acquittée auprès du broker
+   * puis perdue par un incident (base indisponible, arrêt brutal) se retrouve
+   * ici, et `sisbm:ingest --replay-pending` la rejoue. Sans cette lecture, la
+   * ligne « pending » ne serait qu'une trace morte.
+   */
+  findPending(
+    input: { limit: number; olderThan: Date },
+    tx?: TransactionScope
+  ): Promise<Array<{ externalId: string; deviceIdent: string | null; payload: unknown }>>
+
   markProcessed(externalId: string, receivedAt: Date, tx?: TransactionScope): Promise<void>
   markRejected(
     externalId: string,

@@ -49,7 +49,8 @@
     "providers/container_provider.ts": "review",
     "config/sisbm.ts": "review",
     "start/routes.ts": "review",
-    "start/routes/admin.ts": "review"
+    "start/routes/admin.ts": "review",
+    "app/domain/security/value_objects.ts": "review"
   },
   "lineHighlightTypes": [
     {

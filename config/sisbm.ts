@@ -19,6 +19,24 @@ const sisbmConfig = {
     maxPlausibleSpeedKph: env.get('INGEST_MAX_PLAUSIBLE_SPEED_KPH', 250),
     /** Écart recorded_at / received_at signalant une trame de Store & Forward. */
     backlogThresholdSeconds: env.get('INGEST_BACKLOG_THRESHOLD_SECONDS', 300),
+    /**
+     * Trames traitées SIMULTANÉMENT, tous boîtiers confondus.
+     *
+     * Le traitement d'un message reste sérialisé PAR BOÎTIER (l'ordre des
+     * positions conditionne la reconstitution des trajets), mais plusieurs
+     * boîtiers — donc plusieurs organisations — avancent de front. Au-delà de
+     * la taille du pool PostgreSQL (DB_POOL_MAX), on ne gagne plus rien : les
+     * tâches attendraient une connexion.
+     */
+    concurrency: env.get('INGEST_CONCURRENCY', 4),
+    /**
+     * Profondeur de la file d'attente avant contre-pression. Atteinte, le
+     * worker diffère ses acquittements : le broker retient la suite dans la
+     * session persistante au lieu de gonfler la mémoire du process.
+     */
+    queueMaxLength: env.get('INGEST_QUEUE_MAX', 2000),
+    /** Profondeur par boîtier : borne la rafale d'un seul tracker. */
+    queueMaxPerDevice: env.get('INGEST_QUEUE_MAX_PER_DEVICE', 500),
   },
 
   /** Reconstitution des trajets. */

@@ -228,6 +228,33 @@ export class LucidIngestMessageRepository implements IngestMessageRepository {
    * ⚠ `received_at` fait partie de la clé de partitionnement : il doit figurer
    * dans toutes les clauses, y compris les mises à jour.
    */
+
+  /**
+   * Trames en attente, les plus anciennes d'abord.
+   *
+   * `olderThan` écarte celles qui sont en cours de traitement à cet instant :
+   * on ne veut rejouer que ce qui est manifestement resté sur le carreau.
+   * L'index partiel `idx_ingest_messages_pending` rend la lecture directe.
+   */
+  async findPending(
+    input: { limit: number; olderThan: Date },
+    tx?: TransactionScope
+  ): Promise<Array<{ externalId: string; deviceIdent: string | null; payload: unknown }>> {
+    const r = await client(tx).rawQuery(
+      `SELECT external_id, device_ident, payload
+         FROM ingest_messages
+        WHERE status = 'pending' AND received_at < :olderThan
+        ORDER BY received_at
+        LIMIT :limit`,
+      { olderThan: input.olderThan.toISOString(), limit: input.limit }
+    )
+    return (r.rows ?? []).map((row: Record<string, unknown>) => ({
+      externalId: row.external_id as string,
+      deviceIdent: (row.device_ident as string) ?? null,
+      payload: row.payload,
+    }))
+  }
+
   async record(
     input: {
       source: string

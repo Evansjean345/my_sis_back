@@ -54,6 +54,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   INGEST_MIN_SATELLITES: Env.schema.number.optional(),
   INGEST_MAX_PLAUSIBLE_SPEED_KPH: Env.schema.number.optional(),
   INGEST_BACKLOG_THRESHOLD_SECONDS: Env.schema.number.optional(),
+  /** Ingestion : trames traitées simultanément (défaut 4). */
+  INGEST_CONCURRENCY: Env.schema.number.optional(),
+  INGEST_QUEUE_MAX: Env.schema.number.optional(),
+  INGEST_QUEUE_MAX_PER_DEVICE: Env.schema.number.optional(),
 
   // ---------------------------------------------------------- trajets
   TRIP_IDLE_TIMEOUT_SECONDS: Env.schema.number.optional(),
