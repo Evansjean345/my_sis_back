@@ -45,7 +45,6 @@ export default await Env.create(new URL('../', import.meta.url), {
   // Paramètres de sécurité : typés strictement, jamais devinés.
   IMMOBILIZATION_ENABLED: Env.schema.boolean.optional(),
   IMMOBILIZATION_SAFETY_SPEED_KPH: Env.schema.number.optional(),
-  IMMOBILIZATION_REQUIRE_VALIDATION: Env.schema.boolean.optional(),
   IMMOBILIZATION_COMMAND_TTL_MINUTES: Env.schema.number.optional(),
   IMMOBILIZATION_MAX_POSITION_AGE_SECONDS: Env.schema.number.optional(),
 

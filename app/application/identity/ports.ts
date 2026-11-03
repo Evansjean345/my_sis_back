@@ -30,7 +30,6 @@ export interface OrganizationData {
   contactPhone: string | null
   countryCode: string
   timezone: string
-  currency: string
   isActive: boolean
   settings: Record<string, unknown>
 }
@@ -90,7 +89,7 @@ export interface UserAccountRepository {
 
 export interface RoleCatalog {
   findById(roleId: string, tx?: TransactionScope): Promise<AssignableRole | null>
-  /** Rôle système (global) par son code : `admin`, `supervisor`… */
+  /** Rôle système (global) par son code : `super_admin`, `admin`, `operator`. */
   findSystemRole(code: string, tx?: TransactionScope): Promise<AssignableRole | null>
 }
 

@@ -40,12 +40,10 @@ export interface RequestImmobilizationOutput {
   commandId: string
   status: string
   expiresAt: Date
-  requiresValidation: boolean
 }
 
 export interface ImmobilizationSettings {
   safetySpeedKph: number
-  requireValidation: boolean
   commandTtlMinutes: number
   /** Au-delà de cet âge, la dernière position ne prouve plus rien. */
   maxPositionAgeSeconds: number
@@ -142,7 +140,6 @@ export class RequestImmobilization implements UseCase<
           currentSpeed: vitesse,
           ignition: state.ignition,
           safetySpeedLimit: safetyLimit.value,
-          requiresValidation: this.settings.requireValidation,
           ttlMinutes: this.settings.commandTtlMinutes,
           now,
           policyId: input.policyId,
@@ -171,7 +168,6 @@ export class RequestImmobilization implements UseCase<
           commandId: command.id.value,
           status: command.status,
           expiresAt: command.expiresAt,
-          requiresValidation: this.settings.requireValidation,
         })
       },
       { isolationLevel: 'serializable' }

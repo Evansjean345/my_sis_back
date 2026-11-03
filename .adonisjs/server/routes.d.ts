@@ -101,7 +101,6 @@ export type ScannedRoutes = {
     'organization.daily_activity': { paramsTuple?: []; params?: {} }
     'organization.overview': { paramsTuple?: []; params?: {} }
     'immobilization.store': { paramsTuple?: []; params?: {} }
-    'immobilization.validate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.dispatch': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.restore': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
@@ -416,7 +415,6 @@ export type ScannedRoutes = {
     'user.activate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'vehicle.store': { paramsTuple?: []; params?: {} }
     'immobilization.store': { paramsTuple?: []; params?: {} }
-    'immobilization.validate': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.dispatch': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'immobilization.restore': { paramsTuple?: []; params?: {} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }

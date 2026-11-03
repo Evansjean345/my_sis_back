@@ -50,14 +50,12 @@ const sisbmConfig = {
    * Immobilisation contrôlée — paramètres de sécurité.
    *
    * (*) safetySpeedKph : aucune coupure moteur au-dessus de ce seuil.
-   * (*) requireValidation : validation humaine par un second opérateur.
    * enabled reste à `false` tant que le test sur véhicule réel (Jalon 3)
    * n'a pas été validé par SISBM.
    */
   immobilization: {
     enabled: env.get('IMMOBILIZATION_ENABLED', true),
     safetySpeedKph: env.get('IMMOBILIZATION_SAFETY_SPEED_KPH', 5),
-    requireValidation: env.get('IMMOBILIZATION_REQUIRE_VALIDATION', false),
     commandTtlMinutes: env.get('IMMOBILIZATION_COMMAND_TTL_MINUTES', 15),
     /** Une position plus ancienne ne prouve plus que le véhicule est à l'arrêt. */
     //supprimer dans les use_cases

@@ -8,11 +8,10 @@ export const SecurityAndImmobilizationRoutes = () => {
   router
     .group(() => {
       router.post('/immobilizations', [ImmobilizationController, 'store'])
-      router.post('/immobilizations/:id/validation', [ImmobilizationController, 'validate'])
 
       /**
-       * Émission réelle de la coupure vers le boîtier, après validation.
-       * Soumise à IMMOBILIZATION_ENABLED.
+       * Relance de l'émission d'une coupure restée `approved` (POST
+       * /immobilizations émet déjà dans la foulée). Soumise à IMMOBILIZATION_ENABLED.
        */
       router.post('/immobilizations/:id/dispatch', [ImmobilizationController, 'dispatch'])
 

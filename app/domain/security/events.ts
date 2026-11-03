@@ -17,20 +17,6 @@ export class ImmobilizationRequested extends BaseDomainEvent {
   }
 }
 
-//imoobilization validée
-export class ImmobilizationValidated extends BaseDomainEvent {
-  constructor(aggregateId: string, payload: Record<string, unknown>) {
-    super('security.immobilization.validated', aggregateId, payload)
-  }
-}
-
-//immobilisation rejetée
-export class ImmobilizationRejected extends BaseDomainEvent {
-  constructor(aggregateId: string, payload: Record<string, unknown>) {
-    super('security.immobilization.rejected', aggregateId, payload)
-  }
-}
-
 //commande ennvoyé à flepsi
 export class CommandDispatched extends BaseDomainEvent {
   constructor(aggregateId: string, payload: Record<string, unknown>) {

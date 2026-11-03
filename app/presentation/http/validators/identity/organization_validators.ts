@@ -51,12 +51,6 @@ export const createOrganizationValidator = vine.compile(
       .regex(/^[A-Z]{2}$/)
       .optional(),
     timezone: vine.string().trim().maxLength(60).use(ianaTimezone()).optional(),
-    currency: vine
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z]{3}$/)
-      .optional(),
     settings: vine.record(vine.any()).optional(),
     admin: ownerSchema.optional(),
   })
@@ -79,12 +73,6 @@ export const updateOrganizationValidator = vine.compile(
       .regex(/^[A-Z]{2}$/)
       .optional(),
     timezone: vine.string().trim().maxLength(60).use(ianaTimezone()).optional(),
-    currency: vine
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z]{3}$/)
-      .optional(),
     isActive: vine.boolean().optional(),
     settings: vine.record(vine.any()).optional(),
   })

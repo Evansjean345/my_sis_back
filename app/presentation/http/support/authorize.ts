@@ -18,8 +18,8 @@ import type UserModel from '#infrastructure/persistence/models/user_model'
  */
 
 export type Permission =
-  | 'requestImmobilization'
-  | 'validateImmobilization'
+  | 'immobilizeVehicles'
+  | 'sendSensitiveCommands'
   | 'viewVehicles'
   | 'manageVehicles'
   | 'manageUsers'
@@ -30,13 +30,18 @@ export type Permission =
   | 'manageOrganizations'
 
 /**
- * Demander et VALIDER une immobilisation sont deux permissions distinctes.
- * C'est ce qui rend applicable le principe des quatre yeux : un opérateur
- * peut demander sans pouvoir valider.
+ * Matrice des rôles système : migration 016 (super_admin `*`, admin
+ * `command:*`, operator `command:immobilize`).
  */
 const PERMISSION_MAP: Record<Permission, string> = {
-  requestImmobilization: 'command:request',
-  validateImmobilization: 'command:validate',
+  /** Couper / rétablir un moteur (`/security/*`) : les trois rôles. */
+  immobilizeVehicles: 'command:immobilize',
+  /**
+   * Commandes boîtier sensibles (mot de passe, APN, numéro admin, sortie)
+   * et commande flespi brute : une erreur peut rendre le boîtier injoignable.
+   * Réservées à l'administrateur et au super administrateur.
+   */
+  sendSensitiveCommands: 'command:sensitive',
   viewVehicles: 'vehicle:read',
   manageVehicles: 'vehicle:write',
   manageUsers: 'user:write',

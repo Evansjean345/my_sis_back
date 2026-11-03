@@ -8,6 +8,22 @@ import { FlespiIdentError } from '#infrastructure/gateways/flespi/flespi_ident'
 import { ProvisioningError } from '#infrastructure/gateways/flespi/flespi_provisioning'
 
 /**
+ * Index uniques des identifiants de compte (migrations 002 et 014). Un e-mail
+ * et un téléphone désignent UN SEUL compte actif : c'est ce qui rend fiable
+ * la récupération de mot de passe par e-mail ou par SMS.
+ */
+const UNIQUE_ACCOUNT_IDENTIFIERS: Record<string, { code: string; message: string }> = {
+  uq_users_email: {
+    code: 'E_EMAIL_TAKEN',
+    message: 'Cette adresse e-mail est déjà associée à un compte',
+  },
+  uq_users_phone: {
+    code: 'E_PHONE_TAKEN',
+    message: 'Ce numéro de téléphone est déjà associé à un compte',
+  },
+}
+
+/**
  * =========================================================================
  *  FRONTIÈRE ERREURS MÉTIER <-> HTTP
  * =========================================================================
@@ -138,6 +154,16 @@ export default class HttpExceptionHandler extends ExceptionHandler {
 
     if (this.isConstraintViolation(error)) {
       const pg = error as { constraint?: string }
+
+      // Identifiants de compte : code stable et message clair, quel que soit
+      // le chemin (création, modification, admin, course entre deux requêtes).
+      const identifiant = pg.constraint ? UNIQUE_ACCOUNT_IDENTIFIERS[pg.constraint] : undefined
+      if (identifiant) {
+        return ctx.response.status(409).send({
+          error: { code: identifiant.code, message: identifiant.message, details: {} },
+        })
+      }
+
       return ctx.response.status(409).send({
         error: {
           code: 'E_CONSTRAINT_VIOLATION',

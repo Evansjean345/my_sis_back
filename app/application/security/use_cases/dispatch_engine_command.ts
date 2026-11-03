@@ -40,8 +40,8 @@ export interface DispatchSettings {
  *
  * C'est le seul endroit du système qui agit physiquement sur un véhicule.
  * Il n'est atteignable qu'après `RequestImmobilization` (garde-fou de vitesse
- * à la demande) puis `ValidateImmobilization` (second opérateur, vitesse
- * revérifiée). Ici a lieu le TROISIÈME contrôle, juste avant l'émission.
+ * à la demande). Ici a lieu le SECOND contrôle, juste avant l'émission : entre
+ * les deux, le véhicule a pu redémarrer.
  *
  * Deux temps, volontairement séparés :
  *

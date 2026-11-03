@@ -1,7 +1,8 @@
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
-import db from '@adonisjs/lucid/services/db'
 import VehicleModel from '#infrastructure/persistence/models/vehicle_model'
+import { LucidVehicleLiveReader } from '#infrastructure/persistence/readers/vehicle_live_reader'
 import {
   createVehicleValidator,
   updateVehicleValidator,
@@ -29,7 +30,7 @@ import {
 
 /** Plafond de la carte temps réel : au-delà, c'est un export, pas une carte. */
 /*
-Mettre dans un fichier limite de véhicules affichées sur une carte 
+Mettre dans un fichier limite de véhicules affichées sur une carte
 */
 const FLEET_LIVE_MAX = 1000
 
@@ -47,7 +48,10 @@ const FLEET_LIVE_MAX = 1000
  * proportionnelle à la richesse du domaine. Ajouter quatre fichiers pour un
  * `GET /vehicles` serait de la cérémonie.
  */
+@inject()
 export default class VehicleController {
+  constructor(private readonly liveReader: LucidVehicleLiveReader) {}
+
   /** GET /api/v1/vehicles — cloisonné à l'organisation de l'acteur. */
   async index(ctx: HttpContext) {
     await authorize(ctx, 'viewVehicles')
@@ -93,8 +97,8 @@ export default class VehicleController {
    * Chaque ligne a la forme de `GET /vehicles/:id` : le front n'a qu'un type.
    */
   /*
-  Flotte d'une organisation en temps réel et retrouver un groupe de véhicule par son id 
-  fonction à utiliser pour optimiser le dashboard admin 
+  Flotte d'une organisation en temps réel et retrouver un groupe de véhicule par son id
+  fonction à utiliser pour optimiser le dashboard admin
   */
   async live(ctx: HttpContext) {
     await authorize(ctx, 'viewVehicles')
@@ -123,7 +127,7 @@ export default class VehicleController {
     }
 
     const vehicules = await query
-    const details = await this.detailsParVehicule(vehicules.map((v) => v.id))
+    const details = await this.liveReader.detailsByVehicle(vehicules.map((v) => v.id))
 
     return ctx.response.ok({
       data: vehicules.map((v) => ({
@@ -258,11 +262,7 @@ export default class VehicleController {
     const [parStatut, parOrganisation, parConnexion, equipes] = await Promise.all([
       base().select('status').count('* as total').groupBy('status'),
       base().select('organization_id').count('* as total').groupBy('organization_id'),
-      base()
-        .joinRaw('LEFT JOIN vehicle_last_positions p ON p.vehicle_id = vehicles.id')
-        .select(db.raw(`COALESCE(p.connection_state, 'never_seen') AS state`))
-        .count('* as total')
-        .groupByRaw(`COALESCE(p.connection_state, 'never_seen')`),
+      this.liveReader.countByConnection(scope.organizationId),
       base()
         .whereExists((sub) =>
           sub
@@ -285,72 +285,13 @@ export default class VehicleController {
         withDevice: avecBoitier,
         withoutDevice: total - avecBoitier,
         byStatus: compteurs,
-        byConnection: countsBy(parConnexion, 'state'),
+        byConnection: parConnexion,
         byOrganization: parOrganisation.map((l) => ({
           organization: organisations[l.organizationId] ?? { id: l.organizationId },
           total: Number(l.$extras.total ?? 0),
         })),
       },
     })
-  }
-
-  /**
-   * Boîtier monté et dernière position d'un lot de véhicules — UNE requête.
-   * Même projection que le détail d'un véhicule (`afficher`).
-   */
-  /*
-  Détail d'un boitier avec details du boitier et les dernières postions du véhicule 
-  sur lequel le boitier est monté
-  boucle for of pour parcourir les clées et les valeurs des tables jointes (lignes)
-  */
-  private async detailsParVehicule(ids: string[]) {
-    type Detail = {
-      device: Record<string, unknown> | null
-      lastPosition: Record<string, unknown> | null
-    }
-    if (ids.length === 0) return {} as Record<string, Detail>
-
-    // Query builder plutôt que `rawQuery` : knex développe un tableau lié en
-    // liste `IN (?, ?, …)`, ce que `= ANY(:ids)` ne supporte pas.
-    const lignes = await db
-      .from('vehicles as v')
-      .joinRaw('LEFT JOIN device_assignments da ON da.vehicle_id = v.id AND upper_inf(da.period)')
-      .leftJoin('devices as d', 'd.id', 'da.device_id')
-      .leftJoin('vehicle_last_positions as p', 'p.vehicle_id', 'v.id')
-      .whereIn('v.id', ids)
-      .select(
-        'v.id as vehicle_id',
-        'd.id as device_id',
-        'd.imei',
-        'd.model',
-        'd.has_relay',
-        'p.speed_kph',
-        'p.ignition',
-        'p.recorded_at',
-        'p.connection_state',
-        db.raw('ST_Y(p.location::geometry) AS latitude'),
-        db.raw('ST_X(p.location::geometry) AS longitude')
-      )
-
-    const parVehicule: Record<string, Detail> = {}
-    for (const l of lignes as Array<Record<string, any>>) {
-      parVehicule[l.vehicle_id] = {
-        device: l.device_id
-          ? { id: l.device_id, imei: l.imei, model: l.model, hasRelay: l.has_relay }
-          : null,
-        lastPosition: l.recorded_at
-          ? {
-              latitude: l.latitude,
-              longitude: l.longitude,
-              speedKph: l.speed_kph,
-              ignition: l.ignition,
-              recordedAt: l.recorded_at,
-              connectionState: l.connection_state,
-            }
-          : null,
-      }
-    }
-    return parVehicule
   }
 
   /*
@@ -362,38 +303,15 @@ export default class VehicleController {
     if (!vehicule) return this.introuvable(ctx, 'Véhicule')
 
     // Boîtier actuellement monté + dernière position connue.
-    const detail = await db.rawQuery(
-      `SELECT d.id AS device_id, d.imei, d.model, d.has_relay,
-              p.speed_kph, p.ignition, p.recorded_at, p.connection_state,
-              ST_Y(p.location::geometry) AS latitude,
-              ST_X(p.location::geometry) AS longitude
-         FROM vehicles v
-         LEFT JOIN device_assignments da ON da.vehicle_id = v.id AND upper_inf(da.period)
-         LEFT JOIN devices d             ON d.id = da.device_id
-         LEFT JOIN vehicle_last_positions p ON p.vehicle_id = v.id
-        WHERE v.id = :id LIMIT 1`,
-      { id: vehicule.id }
-    )
-    const l = detail.rows?.[0] ?? {}
+    const { device, lastPosition } = await this.liveReader.detail(vehicule.id)
     const organisations = await organizationsOf([vehicule.organizationId])
 
     return ctx.response.ok({
       data: {
         ...vehicule.serialize(),
         organization: organisations[vehicule.organizationId] ?? null,
-        device: l.device_id
-          ? { id: l.device_id, imei: l.imei, model: l.model, hasRelay: l.has_relay }
-          : null,
-        lastPosition: l.recorded_at
-          ? {
-              latitude: l.latitude,
-              longitude: l.longitude,
-              speedKph: l.speed_kph,
-              ignition: l.ignition,
-              recordedAt: l.recorded_at,
-              connectionState: l.connection_state,
-            }
-          : null,
+        device,
+        lastPosition,
       },
     })
   }

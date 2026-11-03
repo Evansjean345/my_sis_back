@@ -34,12 +34,12 @@ const IDS = {
   device: '22222222-2222-4222-8222-222222222222',
   vehicle: '33333333-3333-4333-8333-333333333333',
   requester: '44444444-4444-4444-8444-444444444444',
-  validator: '55555555-5555-4555-8555-555555555555',
+  actor: '55555555-5555-4555-8555-555555555555',
 }
 
 const NOW = new Date('2026-09-12T10:00:00.000Z')
 const CONTEXTE: ExecutionContext = {
-  actorId: IDS.validator,
+  actorId: IDS.actor,
   actorType: 'user',
   organizationId: '66666666-6666-4666-8666-666666666666',
 }
@@ -56,7 +56,7 @@ function motif(texte = 'Vehicule signale vole par le client'): Reason {
   return r.value
 }
 
-/** Commande de coupure déjà validée par un second opérateur. */
+/** Commande de coupure acceptée (`approved`), prête à être émise. */
 function coupureApprouvee(): DeviceCommand {
   const created = DeviceCommand.requestImmobilization({
     id: CommandId.from(IDS.command),
@@ -69,18 +69,11 @@ function coupureApprouvee(): DeviceCommand {
     currentSpeed: vitesse(0),
     ignition: false,
     safetySpeedLimit: vitesse(5),
-    requiresValidation: true,
     ttlMinutes: 15,
     now: NOW,
   })
   if (!created.ok) throw new Error('fixture invalide')
   const command = created.value
-  const validated = command.validate({
-    validatedBy: ActorId.from(IDS.validator),
-    currentSpeed: vitesse(0),
-    now: NOW,
-  })
-  if (!validated.ok) throw new Error('fixture invalide')
   command.pullDomainEvents()
   return command
 }
@@ -274,7 +267,7 @@ test.group('sécurité · émission de la coupure moteur', () => {
 })
 
 test.group('sécurité · rétablissement du moteur', () => {
-  test('créé directement approuvé, sans second valideur', ({ assert }) => {
+  test('créé directement approuvé', ({ assert }) => {
     const command = retablissement()
     assert.equal(command.commandType, 'engine_restore')
     assert.equal(command.status, 'approved')

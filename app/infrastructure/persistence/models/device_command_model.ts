@@ -61,20 +61,6 @@ export default class DeviceCommandModel extends BaseModel {
   @column({ columnName: 'ignition_at_request' })
   declare ignitionAtRequest: boolean | null
 
-  //toujours marqué à false
-  @column({ columnName: 'requires_validation' })
-  declare requiresValidation: boolean
-
-  //par le systeme ou null par personne validation automatique
-  @column({ columnName: 'validated_by' })
-  declare validatedBy: string | null
-
-  @column.dateTime({ columnName: 'validated_at' })
-  declare validatedAt: DateTime | null
-
-  @column({ columnName: 'rejection_reason' })
-  declare rejectionReason: string | null
-
   @column.dateTime({ columnName: 'queued_at' })
   declare queuedAt: DateTime | null
 

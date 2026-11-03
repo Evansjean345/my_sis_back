@@ -30,7 +30,6 @@ export interface NewOrganizationInput {
   contactPhone?: string | null
   countryCode?: string
   timezone?: string
-  currency?: string
   settings?: Record<string, unknown>
 }
 
@@ -147,8 +146,6 @@ export class CreateOrganization implements UseCase<
           contactPhone: input.organization.contactPhone ?? null,
           countryCode: (input.organization.countryCode ?? 'CI').toUpperCase(),
           timezone,
-          //enlever currency après
-          currency: (input.organization.currency ?? 'XOF').toUpperCase(),
           isActive: true,
           settings: input.organization.settings ?? {},
         },

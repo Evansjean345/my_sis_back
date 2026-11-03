@@ -1,7 +1,6 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
-import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import DeviceModel from '#infrastructure/persistence/models/device_model'
 import sisbmConfig from '#config/sisbm'
@@ -14,6 +13,7 @@ import {
 import { FlespiProtocolGateway } from '#infrastructure/gateways/flespi/flespi_protocol_gateway'
 import { FlespiChannelGateway } from '#infrastructure/gateways/flespi/flespi_channel_gateway'
 import { CachedDeviceResolver } from '#infrastructure/persistence/readers/device_resolver'
+import { LucidDeviceAssignments } from '#infrastructure/persistence/repositories/device_assignment_repository'
 import {
   createDeviceValidator,
   updateDeviceValidator,
@@ -76,7 +76,8 @@ export default class DeviceController {
     private readonly provisioning: FlespiProvisioning,
     private readonly channels: FlespiChannelGateway,
     private readonly catalogue: FlespiProtocolGateway,
-    private readonly resolver: CachedDeviceResolver
+    private readonly resolver: CachedDeviceResolver,
+    private readonly assignments: LucidDeviceAssignments
   ) {}
 
   /**
@@ -98,7 +99,7 @@ export default class DeviceController {
 
   /** GET /api/v1/devices */
   /*
-  Affiche la liste des devices 
+  Affiche la liste des devices
   NB : correction de la permission pour lister les boitiers pour un admin ou un client
   */
   async index(ctx: HttpContext) {
@@ -143,7 +144,7 @@ export default class DeviceController {
    * Même contenu que `/admin/devices/stats`, cloisonné à l'acteur.
    */
   /*
-  Voir les stats d'un device 
+  Voir les stats d'un device
   NB : correction de la permission
   */
   async stats(ctx: HttpContext) {
@@ -154,7 +155,7 @@ export default class DeviceController {
 
   /** GET /api/v1/devices/:id */
   /*
-  Voir un device precis par son Id 
+  Voir un device precis par son Id
   NB : correction de la permission
   */
   async show(ctx: HttpContext) {
@@ -521,7 +522,7 @@ export default class DeviceController {
   }
 
   /*
-  renvoi des informations d'un boitier, avec l'affectation au véhicule si monté. 
+  renvoi des informations d'un boitier, avec l'affectation au véhicule si monté.
   Le boitier est recherché dans le périmètre de l'acteur (client) ou dans toute la plateforme (admin).
   tables devices, device_assignments, vehicles
   1. Vérifie que le boîtier existe dans le périmètre.
@@ -532,27 +533,18 @@ export default class DeviceController {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
 
-    const affectation = await db.rawQuery(
-      `SELECT v.id, v.registration, lower(da.period) AS installed_at
-         FROM device_assignments da
-         JOIN vehicles v ON v.id = da.vehicle_id
-        WHERE da.device_id = :id AND upper_inf(da.period)
-        LIMIT 1`,
-      { id: ctx.params.id }
-    )
-
     return ctx.response.ok({
       data: {
         ...device.serialize(),
-        assignment: affectation.rows?.[0] ?? null,
+        assignment: await this.assignments.currentOf(device.id),
       },
     })
   }
 
   /*
   create avec ou sans rattache un boitier à un device flespi, avec le type et le protocole du canal. Le boitier est mis à jour en base avec le deviceId et l'ident flespi.
-  1. Vérifie que le boîtier n'existe pas déjà en base.
-  2. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
+  4. Vérifie que le boîtier n'existe pas déjà en base.
+  5. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
   */
   private async storeScoped(ctx: HttpContext, organizationId: string) {
     const payload = await ctx.request.validateUsing(createDeviceValidator)
@@ -641,12 +633,12 @@ export default class DeviceController {
 
   /*
   Synchronisation d'un boîtier existant avec Flespi : création ou rattachement d'un device flespi, mise à jour du channel, du type et du protocole. Le boîtier est mis à jour en base avec le deviceId et l'ident flespi.
-  1. Vérifie que le boîtier existe en base.
-  2. Vérifie qu'il n'est pas déjà rattaché à un device flespi.
-  3. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
-  4. Met à jour le boîtier en base avec le deviceId, l'ident et le protocole.
-  5. Invalide le cache du boîtier pour que le worker d'ingestion rattache les trames au bon véhicule.
-  6. Retourne les informations du boîtier et du device flespi.
+  6. Vérifie que le boîtier existe en base.
+  7. Vérifie qu'il n'est pas déjà rattaché à un device flespi.
+  8. Crée ou rattache le device chez flespi, avec le type et le protocole du canal.
+  9. Met à jour le boîtier en base avec le deviceId, l'ident et le protocole.
+  10. Invalide le cache du boîtier pour que le worker d'ingestion rattache les trames au bon véhicule.
+  11. Retourne les informations du boîtier et du device flespi.
   */
   private async syncFlespiScoped(ctx: HttpContext, scope: TenantScope) {
     const payload = await ctx.request.validateUsing(syncDeviceFlespiValidator)
@@ -758,11 +750,7 @@ export default class DeviceController {
 
     // Un boîtier encore monté ne se supprime pas : l'historique du véhicule
     // en dépend. Il faut le démonter explicitement d'abord.
-    const monte = await db.rawQuery(
-      `SELECT 1 FROM device_assignments WHERE device_id = :id AND upper_inf(period) LIMIT 1`,
-      { id: ctx.params.id }
-    )
-    if (monte.rows?.length) {
+    if (await this.assignments.isMounted(device.id)) {
       return ctx.response.conflict({
         error: {
           code: 'E_DEVICE_STILL_ASSIGNED',
@@ -826,16 +814,9 @@ export default class DeviceController {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
 
-    const vehicule = await db
-      .from('vehicles')
-      .where('id', vehicleId)
-      // Même organisation que le BOÎTIER (et non que l'acteur) : en admin, le
-      // super_admin n'appartient pas à l'organisation du boîtier.
-      .where('organization_id', device.organizationId)
-      .whereNull('deleted_at')
-      .select('id')
-      .first()
-    if (!vehicule) {
+    // Même organisation que le BOÎTIER (et non que l'acteur) : en admin, le
+    // super_admin n'appartient pas à l'organisation du boîtier.
+    if (!(await this.assignments.vehicleExists(vehicleId, device.organizationId))) {
       return ctx.response.notFound({
         error: {
           code: 'E_VEHICLE_NOT_FOUND',
@@ -845,24 +826,11 @@ export default class DeviceController {
       })
     }
 
-    await db.transaction(async (trx) => {
-      await trx.rawQuery(
-        `UPDATE device_assignments
-            SET period = tstzrange(lower(period), now()), removed_by = :actor
-          WHERE device_id = :device AND upper_inf(period)`,
-        { device: ctx.params.id, actor: contexte.actorId ?? null } as never
-      )
-      await trx.rawQuery(
-        `INSERT INTO device_assignments (device_id, vehicle_id, period, installed_by, install_notes)
-         VALUES (:device, :vehicle, tstzrange(now(), NULL), :actor, :notes)`,
-        {
-          device: ctx.params.id,
-          vehicle: vehicleId,
-          actor: contexte.actorId ?? null,
-          notes: installNotes ?? null,
-        } as never
-      )
-      await trx.from('devices').where('id', ctx.params.id).update({ status: 'active' })
+    await this.assignments.assign({
+      deviceId: device.id,
+      vehicleId,
+      actorId: contexte.actorId ?? null,
+      notes: installNotes ?? null,
     })
 
     //supprimer le cache du boitier pour que le worker d'ingestion rattache les trames au bon véhicule
@@ -879,14 +847,7 @@ export default class DeviceController {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
 
-    const r = await db.rawQuery(
-      `UPDATE device_assignments
-          SET period = tstzrange(lower(period), now()), removed_by = :actor
-        WHERE device_id = :device AND upper_inf(period)
-        RETURNING id`,
-      { device: device.id, actor: contexte.actorId ?? null } as never
-    )
-    if (!r.rows?.length) {
+    if (!(await this.assignments.unassign(device.id, contexte.actorId ?? null))) {
       return ctx.response.notFound({
         error: { code: 'E_NOT_FOUND', message: 'Aucune affectation en cours', details: {} },
       })
@@ -1027,7 +988,7 @@ export default class DeviceController {
     })
   }
 
-  /* 
+  /*
   Trouver les logs d'un boitier rattaché à flespi (flespiDeviceId non null)
   */
   private async flespiLogsScoped(ctx: HttpContext, scope: TenantScope) {
@@ -1043,7 +1004,7 @@ export default class DeviceController {
   }
 
   /*
-  Trouver un boitier rattaché à flespi (flespiDeviceId non null) et ses valeurs de télémétrie. 
+  Trouver un boitier rattaché à flespi (flespiDeviceId non null) et ses valeurs de télémétrie.
   */
   private async flespiTelemetryScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouverRattache(ctx, scope)

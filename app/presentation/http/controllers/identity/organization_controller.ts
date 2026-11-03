@@ -6,6 +6,7 @@ import UserModel from '#infrastructure/persistence/models/user_model'
 import VehicleModel from '#infrastructure/persistence/models/vehicle_model'
 import DeviceModel from '#infrastructure/persistence/models/device_model'
 import DeviceCommandModel from '#infrastructure/persistence/models/device_command_model'
+import { IN_FLIGHT_STATUSES } from '#domain/security/value_objects'
 import VehicleGroupModel from '#infrastructure/persistence/models/vehicle_group_model'
 import DeviceGroupModel from '#infrastructure/persistence/models/device_group_model'
 import { activityWindowValidator } from '#presentation/http/validators/fleet/stats_validators'
@@ -324,14 +325,7 @@ export default class OrganizationController {
           .where('requested_at', '>=', depuis.toJSDate())
           .whereIn('status', ['failed', 'expired'])
       ),
-      compter(
-        de(DeviceCommandModel).whereIn('status', [
-          'pending_validation',
-          'approved',
-          'queued',
-          'sent',
-        ])
-      ),
+      compter(de(DeviceCommandModel).whereIn('status', [...IN_FLIGHT_STATUSES])),
     ])
 
     return ctx.response.ok({
@@ -430,14 +424,7 @@ export default class OrganizationController {
           .where('requested_at', '>=', depuis.toJSDate())
           .whereIn('status', ['failed', 'expired'])
       ),
-      compter(
-        DeviceCommandModel.query().whereIn('status', [
-          'pending_validation',
-          'approved',
-          'queued',
-          'sent',
-        ])
-      ),
+      compter(DeviceCommandModel.query().whereIn('status', [...IN_FLIGHT_STATUSES])),
     ])
 
     return ctx.response.ok({

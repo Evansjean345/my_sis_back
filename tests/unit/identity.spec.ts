@@ -40,7 +40,7 @@ const ROLES: AssignableRole[] = [
     organizationId: null,
     permissions: ['vehicle:*', 'device:*', 'user:*', 'command:*'],
   },
-  { id: 'r-viewer', code: 'viewer', organizationId: null, permissions: ['vehicle:read'] },
+  { id: 'r-operator', code: 'operator', organizationId: null, permissions: ['vehicle:read'] },
   { id: 'r-autre', code: 'chef', organizationId: ORG_AUTRE, permissions: ['vehicle:read'] },
 ]
 
@@ -62,7 +62,6 @@ function organisation(id: string, overrides: Partial<OrganizationRecord> = {}): 
     contactPhone: null,
     countryCode: 'CI',
     timezone: 'Africa/Abidjan',
-    currency: 'XOF',
     isActive: true,
     settings: {},
     createdAt: new Date(),
@@ -177,7 +176,7 @@ const NOUVEAU_COMPTE = {
   email: 'Agent@Client.ci',
   password: 'MotDePasse2026!',
   fullName: 'Agent Client',
-  roleId: 'r-viewer',
+  roleId: 'r-operator',
 }
 
 // ---------------------------------------------------------------- règles pures
@@ -333,7 +332,7 @@ test.group('Identité — créer une organisation et son administrateur', () => 
     if (!r.ok) return
     assert.equal(m.transactions, 1)
     assert.equal(r.value.organization.code, 'transports-kone')
-    assert.equal(r.value.organization.currency, 'XOF')
+    assert.notProperty(r.value.organization, 'currency')
     assert.equal(r.value.admin?.organizationId, r.value.organization.id)
     assert.equal(r.value.admin?.role.code, 'admin')
     assert.equal(r.value.admin?.email, 'direction@kone.ci')

@@ -46,21 +46,6 @@ export class InvalidReasonError extends DomainError {
   }
 }
 
-/** Séparation des rôles : le valideur ne peut pas être le demandeur. */
-//separation des roles pour la double validation d'une commande (à supprimer)
-export class SelfValidationError extends DomainError {
-  readonly code = 'E_SELF_VALIDATION'
-  readonly httpStatus = 403
-
-  constructor(actorId: string) {
-    super(
-      "Le valideur d'une immobilisation ne peut pas être son demandeur. " +
-        'Un second opérateur habilité doit intervenir.',
-      { actorId }
-    )
-  }
-}
-
 /** Contrainte CM-09 : une seule commande en vol par tracker. */
 //une seule commande en cours par tracker
 export class CommandAlreadyInFlightError extends DomainError {

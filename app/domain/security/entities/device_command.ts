@@ -17,21 +17,18 @@ import {
 import {
   CommandExpiredError,
   InvalidTransitionError,
-  SelfValidationError,
   UnsafeSpeedError,
   VehicleInMotionError,
 } from '#domain/security/errors'
 //evenements
 import {
   ImmobilizationRequested,
-  ImmobilizationValidated,
-  ImmobilizationRejected,
   CommandDispatched,
   CommandAcknowledged,
   CommandFailed,
 } from '#domain/security/events'
 
-//propriété des commandes du tracker (certaines proprietés à supprimer)
+//propriété des commandes du tracker
 interface DeviceCommandProps {
   organizationId: string
   deviceId: DeviceId
@@ -40,15 +37,12 @@ interface DeviceCommandProps {
   status: CommandStatus
   reason: Reason
   origin: CommandOrigin
-  requestedBy: ActorId | null //à supprimer plus de doucble validation
-  requestedAt: Date //à supprimer plus de double validation
+  /** Auteur de la demande : seule trace de QUI a coupé le moteur (audit). */
+  requestedBy: ActorId | null
+  requestedAt: Date
   safetySpeedLimit: Speed
   speedAtRequest: Speed | null
   ignitionAtRequest: boolean | null
-  requiresValidation: boolean
-  validatedBy: ActorId | null //à supprimer plus de double validation
-  validatedAt: Date | null //à supprimer plus de double validation
-  rejectionReason: string | null
   queuedAt: Date | null
   sentAt: Date | null
   acknowledgedAt: Date | null
@@ -79,7 +73,6 @@ interface DeviceCommandProps {
  * Invariants portés :
  *   CM-07  aucune coupure moteur au-dessus du seuil de vitesse
  *   CM-08  motif obligatoire et substantiel
- *   —      séparation des rôles (le valideur n'est pas le demandeur)
  *   —      machine à états stricte
  *   —      expiration : au-delà du TTL, la vitesse doit être revérifiée
  */
@@ -111,7 +104,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
     currentSpeed: Speed
     ignition: boolean | null
     safetySpeedLimit: Speed
-    requiresValidation: boolean
     ttlMinutes: number //à definir le temps de traitement d'une commande
     now: Date
     policyId?: string | null
@@ -127,7 +119,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       deviceId: input.deviceId,
       vehicleId: input.vehicleId,
       commandType: 'engine_cut', //commande pour couper le moteur
-      status: input.requiresValidation ? 'pending_validation' : 'approved', //supprimer la double validation
+      status: 'approved',
       reason: input.reason,
       origin: input.origin,
       requestedBy: input.requestedBy,
@@ -135,10 +127,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       safetySpeedLimit: input.safetySpeedLimit,
       speedAtRequest: input.currentSpeed,
       ignitionAtRequest: input.ignition,
-      requiresValidation: input.requiresValidation,
-      validatedBy: null,
-      validatedAt: null,
-      rejectionReason: null,
       queuedAt: null,
       sentAt: null,
       acknowledgedAt: null,
@@ -159,7 +147,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
         origin: input.origin,
         requestedBy: input.requestedBy?.value ?? null,
         speedAtRequestKph: input.currentSpeed.kph,
-        requiresValidation: input.requiresValidation, //true ou false
       })
     )
 
@@ -170,9 +157,7 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
    * Rétablissement du moteur.
    *
    * Aucun garde-fou de vitesse : rendre l'alimentation à un véhicule est
-   * toujours plus sûr que de la lui retirer. Aucune validation par un second
-   * opérateur non plus — exiger deux personnes pour LEVER une immobilisation
-   * transformerait une erreur en immobilisation prolongée.
+   * toujours plus sûr que de la lui retirer.
    */
   static requestEngineRestore(input: {
     id: CommandId
@@ -199,10 +184,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       safetySpeedLimit: input.safetySpeedLimit,
       speedAtRequest: null,
       ignitionAtRequest: null,
-      requiresValidation: false,
-      validatedBy: null,
-      validatedAt: null,
-      rejectionReason: null,
       queuedAt: null,
       sentAt: null,
       acknowledgedAt: null,
@@ -220,64 +201,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
   /** Reconstitution depuis la persistance — aucune règle rejouée. */
   static rehydrate(id: CommandId, props: DeviceCommandProps): DeviceCommand {
     return new DeviceCommand(id, props)
-  }
-
-  // -------------------------------------------------------------- validation
-
-  /**
-   * Validation par un second opérateur (principe des quatre yeux).
-   *
-   * On revérifie ici la vitesse **et** l'expiration : entre la demande et la
-   * validation, le véhicule a pu redémarrer. C'est le scénario réaliste où
-   * un contrôle uniquement à la demande serait dangereux.
-   */
-  //à supprimer la double validation
-  validate(input: { validatedBy: ActorId; currentSpeed: Speed; now: Date }): Result<void> {
-    const transition = this.ensureTransition('approved', input.now)
-    if (!transition.ok) return transition
-
-    if (this.props.requestedBy && this.props.requestedBy.equals(input.validatedBy)) {
-      return Err(new SelfValidationError(input.validatedBy.value))
-    }
-
-    if (!input.currentSpeed.isAtOrBelow(this.props.safetySpeedLimit)) {
-      return Err(new VehicleInMotionError(input.currentSpeed.kph, this.props.safetySpeedLimit.kph))
-    }
-
-    this.props.status = 'approved'
-    this.props.validatedBy = input.validatedBy
-    this.props.validatedAt = input.now
-    this.props.speedAtRequest = input.currentSpeed
-
-    this.addDomainEvent(
-      new ImmobilizationValidated(this.id.value, {
-        deviceId: this.props.deviceId.value,
-        vehicleId: this.props.vehicleId?.value ?? null,
-        validatedBy: input.validatedBy.value,
-        speedAtValidationKph: input.currentSpeed.kph,
-      })
-    )
-    return Ok(undefined)
-  }
-
-  //à supprimer (reject par la doucble double validation)
-  reject(input: { rejectedBy: ActorId; rejectionReason: string; now: Date }): Result<void> {
-    const transition = this.ensureTransition('rejected', input.now, { ignoreExpiry: true })
-    if (!transition.ok) return transition
-
-    this.props.status = 'rejected'
-    this.props.validatedBy = input.rejectedBy
-    this.props.validatedAt = input.now
-    this.props.rejectionReason = input.rejectionReason
-
-    this.addDomainEvent(
-      new ImmobilizationRejected(this.id.value, {
-        deviceId: this.props.deviceId.value,
-        rejectedBy: input.rejectedBy.value,
-        rejectionReason: input.rejectionReason,
-      })
-    )
-    return Ok(undefined)
   }
 
   // -------------------------------------------------------------- exécution
@@ -451,10 +374,6 @@ export class DeviceCommand extends AggregateRoot<CommandId> {
       safetySpeedLimitKph: this.props.safetySpeedLimit.kph,
       speedAtRequestKph: this.props.speedAtRequest?.kph ?? null,
       ignitionAtRequest: this.props.ignitionAtRequest,
-      requiresValidation: this.props.requiresValidation,
-      validatedBy: this.props.validatedBy?.value ?? null, //supprimer la double validation
-      validatedAt: this.props.validatedAt, //supprimer la double validation
-      rejectionReason: this.props.rejectionReason,
       queuedAt: this.props.queuedAt,
       sentAt: this.props.sentAt,
       acknowledgedAt: this.props.acknowledgedAt,

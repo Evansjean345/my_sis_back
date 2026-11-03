@@ -17,7 +17,6 @@ export default class OrganizationModel extends BaseModel {
   @column({ columnName: 'contact_phone' }) declare contactPhone: string | null
   @column({ columnName: 'country_code' }) declare countryCode: string
   @column() declare timezone: string
-  @column() declare currency: string
   @column({ columnName: 'is_active' }) declare isActive: boolean
 
   //paramètres optionel à definir

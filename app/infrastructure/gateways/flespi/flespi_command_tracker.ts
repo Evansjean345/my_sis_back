@@ -2,6 +2,10 @@ import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import type { HttpFlespiCommandGateway } from '#infrastructure/gateways/flespi/flespi_command_gateway'
 import type { FlespiCommandResult } from '#infrastructure/gateways/flespi/flespi_types'
+import {
+  AWAITING_PROVIDER_STATUSES,
+  type ProviderOutcomeStatus,
+} from '#domain/security/code_legacy/code_base'
 
 /**
  * =========================================================================
@@ -24,7 +28,6 @@ import type { FlespiCommandResult } from '#infrastructure/gateways/flespi/flespi
  * périodiquement par `node ace sisbm:flespi:sync-commands`.
  */
 
-//command envoyé en queue
 interface LigneEnVol {
   id: string
   status: string
@@ -32,7 +35,6 @@ interface LigneEnVol {
   expires_at: Date
 }
 
-//synchronisation de la commande
 export interface SyncReport {
   acknowledged: number
   failed: number
@@ -43,19 +45,16 @@ export interface SyncReport {
 export class FlespiCommandTracker {
   constructor(private readonly gateway: HttpFlespiCommandGateway) {}
 
-  //synchronisation des commandes en vol d'un boîtier réel : 1. résultats de flespi, 2. commandes encore en file, 3. mise à jour locale
   async sync(deviceId: string, flespiDeviceId: number): Promise<SyncReport> {
     const rapport: SyncReport = { acknowledged: 0, failed: 0, expired: 0, stillPending: 0 }
 
-    //recupération des commandes envoyées et en file d'attente en base de donnée
     const lignes = (await db
       .from('device_commands')
       .where('device_id', deviceId)
-      .whereIn('status', ['queued', 'sent'])
+      .whereIn('status', [...AWAITING_PROVIDER_STATUSES])
       .select('id', 'status', 'provider_command_id', 'expires_at')) as LigneEnVol[]
     if (lignes.length === 0) return rapport
 
-    //resultat des commandes
     let resultats: FlespiCommandResult[] = []
     let enFile = new Set<string>()
     try {
@@ -122,7 +121,6 @@ export class FlespiCommandTracker {
    * chez flespi mais encore `sent` chez nous, la contrainte CM-09 bloquerait
    * la nouvelle commande.
    */
-  /* Synchronisation des boitiers et des vehicules ayant une commande */
   async syncVehicle(vehicleId: string): Promise<SyncReport | null> {
     const device = await db
       .from('device_assignments as da')
@@ -138,16 +136,12 @@ export class FlespiCommandTracker {
   }
 
   /** Synchronise tous les boîtiers ayant une commande en vol. */
-  /*
-  synchronisation de toutes les boitiers 
-  ayant une commande en cours en excluant les boitiers qui ne sont pas synchronisés avec flespi
-  */
   async syncAll(): Promise<SyncReport & { devices: number }> {
     const total = { acknowledged: 0, failed: 0, expired: 0, stillPending: 0, devices: 0 }
     const devices = await db
       .from('device_commands as c')
       .join('devices as d', 'd.id', 'c.device_id')
-      .whereIn('c.status', ['queued', 'sent'])
+      .whereIn('c.status', [...AWAITING_PROVIDER_STATUSES])
       .whereNotNull('d.flespi_device_id')
       .distinct('d.id', 'd.flespi_device_id')
 
@@ -162,13 +156,9 @@ export class FlespiCommandTracker {
     return total
   }
 
-  /*
-  gestion de la transition des commandes avec un update sur la table commands
-  en base de donnée et insertion des logs dans la table device_command_logs
-  */
   private async transition(
     l: LigneEnVol,
-    vers: 'acknowledged' | 'failed' | 'expired',
+    vers: ProviderOutcomeStatus,
     champs: Record<string, unknown>,
     payload: Record<string, unknown>
   ): Promise<void> {

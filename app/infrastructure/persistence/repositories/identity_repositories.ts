@@ -64,7 +64,6 @@ function toOrganizationRecord(row: OrganizationModel): OrganizationRecord {
     contactPhone: row.contactPhone,
     countryCode: row.countryCode,
     timezone: row.timezone,
-    currency: row.currency,
     isActive: row.isActive,
     // À la création, Lucid garde la valeur JS fournie ; à la relecture, le
     // pilote pg rend déjà un objet. Le cas chaîne ne survient qu'en cas

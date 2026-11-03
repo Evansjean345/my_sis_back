@@ -522,20 +522,14 @@ Content-Type: application/json
 ###
 @commandId = {{immobilization.response.body.data.commandId}}
 
-### validation par un SECOND opérateur (jeton d'un autre utilisateur)
-POST {{api}}/security/immobilizations/{{commandId}}/validation
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "decision": "approve" }
-
-### ÉMISSION RÉELLE vers le boîtier — 3e contrôle de vitesse, puis S20 1,1
-### Exige IMMOBILIZATION_ENABLED=true. Véhicule à l'arrêt, personne à bord.
+### La demande ci-dessus émet déjà la coupure (S20 1,1) : plus de double validation.
+### RELANCE uniquement si l'émission n'a pas pu démarrer (commande restée `approved`).
+### 2e contrôle de vitesse avant émission. Exige IMMOBILIZATION_ENABLED=true.
 POST {{api}}/security/immobilizations/{{commandId}}/dispatch
 Authorization: Bearer {{token}}
 
 ### RÉTABLISSEMENT — demande + émission (S20 0,0) en un appel
-### Ni second valideur, ni contrôle de vitesse : rendre l'alimentation est l'acte sûr.
+### Pas de contrôle de vitesse : rendre l'alimentation est l'acte sûr.
 POST {{api}}/security/restorations
 Authorization: Bearer {{token}}
 Content-Type: application/json

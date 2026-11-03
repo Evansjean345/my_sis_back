@@ -6,7 +6,6 @@ import { UuidGenerator } from '#infrastructure/services/id_generator'
 import { LucidDeviceCommandRepository } from '#infrastructure/persistence/repositories/device_command_repository'
 import { LucidVehicleStateReader } from '#infrastructure/persistence/readers/vehicle_state_reader'
 import { RequestImmobilization } from '#application/security/use_cases/request_immobilization'
-import { ValidateImmobilization } from '#application/security/use_cases/validate_immobilization'
 import { DispatchEngineCommand } from '#application/security/use_cases/dispatch_engine_command'
 import { RequestEngineRestore } from '#application/security/use_cases/request_engine_restore'
 import { LucidDeviceProviderReader } from '#infrastructure/persistence/readers/device_provider_reader'
@@ -136,7 +135,6 @@ export default class ContainerProvider {
         new LucidAuditLogger(),
         {
           safetySpeedKph: immo.safetySpeedKph,
-          requireValidation: immo.requireValidation,
           commandTtlMinutes: immo.commandTtlMinutes,
           //à supprimer
           maxPositionAgeSeconds: immo.maxPositionAgeSeconds,
@@ -178,17 +176,6 @@ export default class ContainerProvider {
           safetySpeedKph: immo.safetySpeedKph,
           commandTtlMinutes: immo.commandTtlMinutes,
         }
-      )
-    })
-
-    this.app.container.singleton(ValidateImmobilization, () => {
-      return new ValidateImmobilization(
-        new LucidUnitOfWork(),
-        new LucidDeviceCommandRepository(),
-        new LucidVehicleStateReader(),
-        new SystemClock(),
-        new LucidAuditLogger(),
-        immo.maxPositionAgeSeconds
       )
     })
 

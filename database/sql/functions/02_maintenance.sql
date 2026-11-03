@@ -109,19 +109,13 @@ BEGIN
     )
   HAVING count(*) > 0;
 
-  -- rapprochement comptable SMS : solde vs grand livre
+  -- solde SMS global sous le seuil d'alerte
   RETURN QUERY
-  SELECT 'sms_balance_mismatch', 'critical',
-         'Écart entre sms_accounts.balance_credits et la somme du grand livre',
+  SELECT 'sms_low_balance', 'warning',
+         'Solde SMS global sous le seuil d''alerte (recharger la passerelle)',
          count(*)
-  FROM (
-    SELECT a.id
-    FROM sms_accounts a
-    LEFT JOIN (
-      SELECT sms_account_id, sum(quantity) AS total FROM sms_transactions GROUP BY 1
-    ) t ON t.sms_account_id = a.id
-    WHERE a.balance_credits <> coalesce(t.total, 0)
-  ) x
+  FROM sms_balance
+  WHERE balance_credits < low_balance_threshold
   HAVING count(*) > 0;
 
   -- outbox bloquée

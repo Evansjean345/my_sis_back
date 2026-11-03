@@ -1,5 +1,6 @@
 import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
+import { COMMAND_STATUSES } from '#domain/security/value_objects'
 
 /**
  * =========================================================================
@@ -12,17 +13,8 @@ import type { FieldContext } from '@vinejs/vine/types'
  */
 
 const VEHICLE_STATUS = ['draft', 'active', 'maintenance', 'inactive', 'archived'] as const
-const COMMAND_STATUS = [
-  'pending_validation',
-  'approved',
-  'rejected',
-  'queued',
-  'sent',
-  'acknowledged',
-  'failed',
-  'expired',
-  'cancelled',
-] as const
+//etat d'une commande : source unique dans le domaine
+const COMMAND_STATUS = COMMAND_STATUSES
 
 const isoInstant = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
   if (typeof value !== 'string') return

@@ -48,19 +48,19 @@ export const deviceCommandsRoutes = () => {
         .where('commandId', router.matchers.uuid())
 
       // ---- alarme embarquée
-      router.post('/:id/commands/arm', [CommandController, 'arm'])
-      router.post('/:id/commands/disarm', [CommandController, 'disarm'])
+      router.post('/:id/commands/arm', [CommandController, 'arm'] as any)
+      router.post('/:id/commands/disarm', [CommandController, 'disarm'] as any)
 
       // ---- diagnostic
-      router.post('/:id/commands/request-status', [CommandController, 'requestStatus'])
-      router.post('/:id/commands/reboot', [CommandController, 'reboot'])
+      router.post('/:id/commands/request-status', [CommandController, 'requestStatus'] as any)
+      router.post('/:id/commands/reboot', [CommandController, 'reboot'] as any)
 
       // ---- rythme de reporting
-      router.post('/:id/commands/start-tracking', [CommandController, 'startTracking'])
-      router.post('/:id/commands/stop-tracking', [CommandController, 'stopTracking'])
+      router.post('/:id/commands/start-tracking', [CommandController, 'startTracking'] as any)
+      router.post('/:id/commands/stop-tracking', [CommandController, 'stopTracking'] as any)
 
       // ---- sortie auxiliaire
-      router.post('/:id/commands/set-output', [CommandController, 'setOutput'])
+      router.post('/:id/commands/set-output', [CommandController, 'setOutput'] as any)
 
       // ---- réservé à l'exploitant : configuration et commande brute
       //à definir dans un fichier

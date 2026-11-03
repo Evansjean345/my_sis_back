@@ -53,24 +53,26 @@ CREATE INDEX idx_mv_event_daily_stats_date
   ON mv_event_daily_stats (organization_id, activity_date DESC);
 
 -- ---------------------------------------------------------------------------
--- Consommation SMS mensuelle — module facturation (TDR §II.6)
+-- Consommation SMS mensuelle par organisation — module facturation (TDR §II.4, §II.6)
+-- Le solde est global (table sms_balance) ; la consommation reste attribuée
+-- à chaque organisation à partir des notifications SMS réellement émises.
 -- ---------------------------------------------------------------------------
 DROP MATERIALIZED VIEW IF EXISTS mv_sms_monthly_usage;
 
 CREATE MATERIALIZED VIEW mv_sms_monthly_usage AS
 SELECT
-  st.organization_id,
-  st.sms_account_id,
-  date_trunc('month', st.created_at AT TIME ZONE 'Africa/Abidjan')::date AS period_month,
-  sum(-st.quantity)     FILTER (WHERE st.transaction_type = 'consumption') AS credits_consumed,
-  sum(st.quantity)      FILTER (WHERE st.transaction_type = 'topup')       AS credits_purchased,
-  sum(st.total_amount)  FILTER (WHERE st.transaction_type = 'consumption') AS cost_amount,
-  count(*)              FILTER (WHERE st.transaction_type = 'consumption') AS messages_count
-FROM sms_transactions st
-GROUP BY 1, 2, 3;
+  n.organization_id,
+  date_trunc('month', n.queued_at AT TIME ZONE 'Africa/Abidjan')::date AS period_month,
+  count(*)                                   AS messages_count,
+  sum(n.segments)                            AS credits_consumed,
+  count(*) FILTER (WHERE n.status = 'failed') AS messages_failed
+FROM notifications n
+WHERE n.channel = 'sms'
+  AND n.status IN ('sent', 'delivered', 'failed')
+GROUP BY 1, 2;
 
 CREATE UNIQUE INDEX uq_mv_sms_monthly_usage
-  ON mv_sms_monthly_usage (sms_account_id, period_month);
+  ON mv_sms_monthly_usage (organization_id, period_month);
 
 -- ---------------------------------------------------------------------------
 -- Rafraîchissement (tâche planifiée nocturne)

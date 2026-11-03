@@ -20,8 +20,8 @@ FROM roles r WHERE r.code = 'admin';
 INSERT INTO users (id, organization_id, role_id, email, password_hash, full_name)
 SELECT '33333333-3333-3333-3333-333333333333',
        '11111111-1111-1111-1111-111111111111', r.id,
-       'sup@sisbm.ci', 'x', 'Superviseur'
-FROM roles r WHERE r.code = 'supervisor';
+       'valideur@sisbm.ci', 'x', 'Second administrateur'
+FROM roles r WHERE r.code = 'admin';
 
 INSERT INTO vehicles (id, organization_id, registration) VALUES
   ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '1234 AB 01'),
@@ -71,15 +71,15 @@ END $$;
 -- =============================================================================
 -- CM-06 : un seul trajet ouvert par véhicule
 -- =============================================================================
-INSERT INTO trips (organization_id, vehicle_id, started_at)
+INSERT INTO trips (organization_id, vehicle_id, started_at, last_point_at)
 VALUES ('11111111-1111-1111-1111-111111111111',
-        'aaaaaaaa-0000-0000-0000-000000000001', now() - interval '1 hour');
+        'aaaaaaaa-0000-0000-0000-000000000001', now() - interval '1 hour', now());
 
 DO $$
 BEGIN
-  INSERT INTO trips (organization_id, vehicle_id, started_at)
+  INSERT INTO trips (organization_id, vehicle_id, started_at, last_point_at)
   VALUES ('11111111-1111-1111-1111-111111111111',
-          'aaaaaaaa-0000-0000-0000-000000000001', now());
+          'aaaaaaaa-0000-0000-0000-000000000001', now(), now());
   RAISE EXCEPTION 'ECHEC CM-06 : deux trajets ouverts acceptes';
 EXCEPTION WHEN unique_violation THEN
   RAISE NOTICE 'OK CM-06 : second trajet ouvert rejete';
@@ -102,13 +102,11 @@ END $$;
 
 -- la même commande à l'arrêt doit passer
 INSERT INTO device_commands (id, organization_id, device_id, vehicle_id, command_type,
-                             status, reason, requested_by, validated_by, validated_at,
-                             speed_at_request_kph)
+                             status, reason, requested_by, speed_at_request_kph)
 VALUES ('cccccccc-0000-0000-0000-000000000001',
         '11111111-1111-1111-1111-111111111111', 'bbbbbbbb-0000-0000-0000-000000000001',
         'aaaaaaaa-0000-0000-0000-000000000001', 'engine_cut',
-        'approved', 'Vehicule signale vole', '22222222-2222-2222-2222-222222222222',
-        '33333333-3333-3333-3333-333333333333', now(), 0);
+        'approved', 'Vehicule signale vole', '22222222-2222-2222-2222-222222222222', 0);
 
 -- =============================================================================
 -- CM-09 : une seule commande en vol par tracker
@@ -118,7 +116,7 @@ BEGIN
   INSERT INTO device_commands (organization_id, device_id, command_type, status,
                                reason, requested_by, speed_at_request_kph)
   VALUES ('11111111-1111-1111-1111-111111111111', 'bbbbbbbb-0000-0000-0000-000000000001',
-          'engine_cut', 'pending_validation', 'Seconde demande concurrente',
+          'engine_cut', 'approved', 'Seconde demande concurrente',
           '22222222-2222-2222-2222-222222222222', 0);
   RAISE EXCEPTION 'ECHEC CM-09 : deux commandes en vol acceptees';
 EXCEPTION WHEN unique_violation THEN
@@ -126,16 +124,15 @@ EXCEPTION WHEN unique_violation THEN
 END $$;
 
 -- =============================================================================
--- Séparation des rôles : le valideur ne peut pas être le demandeur
+-- Double validation supprimée (migration 016) : statut historique refusé
 -- =============================================================================
 DO $$
 BEGIN
-  UPDATE device_commands
-  SET validated_by = requested_by
+  UPDATE device_commands SET status = 'pending_validation'
   WHERE id = 'cccccccc-0000-0000-0000-000000000001';
-  RAISE EXCEPTION 'ECHEC four-eyes : auto-validation acceptee';
+  RAISE EXCEPTION 'ECHEC : statut pending_validation encore accepte';
 EXCEPTION WHEN check_violation THEN
-  RAISE NOTICE 'OK four-eyes : auto-validation rejetee';
+  RAISE NOTICE 'OK : statuts de validation retires';
 END $$;
 
 -- =============================================================================
@@ -152,19 +149,47 @@ EXCEPTION WHEN check_violation THEN
 END $$;
 
 -- =============================================================================
--- CM-10 : le solde SMS ne peut pas devenir négatif
+-- CM-10 : le solde SMS global ne peut pas devenir négatif, et reste unique
 -- =============================================================================
-INSERT INTO sms_accounts (id, organization_id, provider, balance_credits, unit_price_amount)
-VALUES ('dddddddd-0000-0000-0000-000000000001',
-        '11111111-1111-1111-1111-111111111111', 'local_gateway', 100, 25);
+UPDATE sms_balance SET balance_credits = 100 WHERE id = 1;
 
 DO $$
 BEGIN
-  UPDATE sms_accounts SET balance_credits = balance_credits - 200
-  WHERE id = 'dddddddd-0000-0000-0000-000000000001';
+  UPDATE sms_balance SET balance_credits = balance_credits - 200 WHERE id = 1;
   RAISE EXCEPTION 'ECHEC CM-10 : solde negatif accepte';
 EXCEPTION WHEN check_violation THEN
   RAISE NOTICE 'OK CM-10 : solde negatif rejete';
+END $$;
+
+DO $$
+BEGIN
+  INSERT INTO sms_balance (id) VALUES (2);
+  RAISE EXCEPTION 'ECHEC CM-10 : second solde SMS accepte';
+EXCEPTION WHEN check_violation THEN
+  RAISE NOTICE 'OK CM-10 : solde SMS unique';
+END $$;
+
+-- =============================================================================
+-- Identifiants de compte : un e-mail et un téléphone = un seul compte actif
+-- =============================================================================
+UPDATE users SET phone = '+2250700000001' WHERE id = '22222222-2222-2222-2222-222222222222';
+
+DO $$
+BEGIN
+  UPDATE users SET phone = '+2250700000001' WHERE id = '33333333-3333-3333-3333-333333333333';
+  RAISE EXCEPTION 'ECHEC : telephone partage par deux comptes actifs';
+EXCEPTION WHEN unique_violation THEN
+  RAISE NOTICE 'OK : telephone unique';
+END $$;
+
+DO $$
+BEGIN
+  INSERT INTO users (organization_id, role_id, email, password_hash, full_name)
+  SELECT '11111111-1111-1111-1111-111111111111', r.id, 'ADMIN@sisbm.ci', 'x', 'Doublon'
+  FROM roles r WHERE r.code = 'operator';
+  RAISE EXCEPTION 'ECHEC : e-mail partage par deux comptes actifs';
+EXCEPTION WHEN unique_violation THEN
+  RAISE NOTICE 'OK : e-mail unique (insensible a la casse)';
 END $$;
 
 -- =============================================================================

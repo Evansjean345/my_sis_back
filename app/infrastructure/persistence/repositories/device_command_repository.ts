@@ -71,10 +71,6 @@ export class LucidDeviceCommandRepository implements DeviceCommandRepository {
       safetySpeedLimitKph: s.safetySpeedLimitKph,
       speedAtRequestKph: s.speedAtRequestKph,
       ignitionAtRequest: s.ignitionAtRequest,
-      requiresValidation: s.requiresValidation,
-      validatedBy: s.validatedBy,
-      validatedAt: s.validatedAt ? DateTime.fromJSDate(s.validatedAt) : null,
-      rejectionReason: s.rejectionReason,
       queuedAt: s.queuedAt ? DateTime.fromJSDate(s.queuedAt) : null,
       sentAt: s.sentAt ? DateTime.fromJSDate(s.sentAt) : null,
       acknowledgedAt: s.acknowledgedAt ? DateTime.fromJSDate(s.acknowledgedAt) : null,
@@ -107,7 +103,7 @@ export class LucidDeviceCommandRepository implements DeviceCommandRepository {
   //double avlidation à supprimer
   async findExpirable(now: Date, limit: number): Promise<DeviceCommand[]> {
     const rows = await DeviceCommandModel.query()
-      .whereIn('status', ['pending_validation', 'approved', 'queued'])
+      .whereIn('status', ['approved', 'queued'])
       .where('expires_at', '<', DateTime.fromJSDate(now).toSQL()!)
       .limit(limit)
     return rows.map((r) => this.toDomain(r))
@@ -130,10 +126,6 @@ export class LucidDeviceCommandRepository implements DeviceCommandRepository {
       speedAtRequest:
         row.speedAtRequestKph === null ? null : Speed.trusted(Number(row.speedAtRequestKph)),
       ignitionAtRequest: row.ignitionAtRequest,
-      requiresValidation: row.requiresValidation,
-      validatedBy: row.validatedBy ? ActorId.from(row.validatedBy) : null,
-      validatedAt: row.validatedAt?.toJSDate() ?? null,
-      rejectionReason: row.rejectionReason,
       queuedAt: row.queuedAt?.toJSDate() ?? null,
       sentAt: row.sentAt?.toJSDate() ?? null,
       acknowledgedAt: row.acknowledgedAt?.toJSDate() ?? null,

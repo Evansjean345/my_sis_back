@@ -2,20 +2,32 @@ import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
-import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import sisbmConfig from '#config/sisbm'
 import DeviceModel from '#infrastructure/persistence/models/device_model'
+import { LucidDeviceCommandJournal } from '#infrastructure/persistence/repositories/device_command_journal'
+/*
+Start code_legacy command
+*/
+import { IN_FLIGHT_STATUSES } from '#domain/security/value_objects'
+import type { CommandType } from '#domain/security/code_legacy/code_base'
 import {
-  FLESPI_COMMANDS,
   HttpFlespiCommandGateway,
-  buildBusinessCommand,
   checkAgainstCatalog,
-  type CommandType,
-  type FlespiCommand,
-  type FlespiCommandName,
   type SendResult,
 } from '#infrastructure/gateways/flespi/flespi_command_gateway'
+import {
+  FLESPI_COMMANDS,
+  buildBusinessCommand,
+  //isDisguisedEngineCommand,
+  //commandTypeOfRawCommand,
+  type FlespiCommand,
+} from '#infrastructure/gateways/flespi/code_legacy/tracker_command'
+import { type FlespiCommandName } from '#infrastructure/gateways/flespi/code_legacy/flespi_command'
+import { REGLAGES_CRITIQUES } from '#infrastructure/gateways/flespi/code_legacy/tracker_reglages'
+/*
+End code_legacy command
+*/
 import { FlespiApiError } from '#infrastructure/gateways/flespi/flespi_client'
 import { FlespiDeviceGateway } from '#infrastructure/gateways/flespi/flespi_device_gateway'
 import { FlespiCommandTracker } from '#infrastructure/gateways/flespi/flespi_command_tracker'
@@ -62,14 +74,6 @@ import {
  * mauvais APN). Une erreur ici n'est PAS rattrapable à distance : il faut
  * intervenir physiquement ou par SMS. Confirmation explicite exigée.
  */
-/*
-A mettre dans un fichier qui sera les commandes sensibles pour eviter de polluer le code du controller
-*/
-const REGLAGES_CRITIQUES = new Set([
-  'setting.server.set',
-  'setting.network.set',
-  'setting.auto_apn.set',
-])
 
 /**
  * Commandes d'EXPLOITATION ouvertes au tableau de bord client (routes
@@ -94,7 +98,8 @@ export default class DeviceCommandController {
   constructor(
     private readonly gateway: HttpFlespiCommandGateway,
     private readonly devices: FlespiDeviceGateway,
-    private readonly tracker: FlespiCommandTracker
+    private readonly tracker: FlespiCommandTracker,
+    private readonly journal: LucidDeviceCommandJournal
   ) {}
 
   /** GET /api/v1/devices/:id/commands — catalogue des commandes métier SISBM. */
@@ -150,24 +155,7 @@ export default class DeviceCommandController {
 
     const vehiculeIds = [...new Set(lignes.map((c) => c.vehicleId).filter((v): v is string => !!v))]
     const deviceIds = [...new Set(lignes.map((c) => c.deviceId))]
-    const [vehicules, boitiers] = await Promise.all([
-      vehiculeIds.length
-        ? db
-            .from('vehicles')
-            .whereIn('id', vehiculeIds)
-            .where('organization_id', org)
-            .select('id', 'registration', 'label')
-        : [],
-      deviceIds.length
-        ? db
-            .from('devices')
-            .whereIn('id', deviceIds)
-            .where('organization_id', org)
-            .select('id', 'imei', 'model')
-        : [],
-    ])
-    const v = Object.fromEntries(vehicules.map((l) => [l.id, l]))
-    const d = Object.fromEntries(boitiers.map((l) => [l.id, l]))
+    const { vehicles: v, devices: d } = await this.journal.labelsFor(org, vehiculeIds, deviceIds)
 
     return ctx.response.ok({
       meta: resultat.getMeta(),
@@ -254,7 +242,7 @@ export default class DeviceCommandController {
    * métier existe. Habilitation « commande sensible » exigée.
    */
   async send(ctx: HttpContext) {
-    await authorize(ctx, 'requestImmobilization')
+    await authorize(ctx, 'sendSensitiveCommands')
     return this.sendScoped(ctx, ownScope(ctx))
   }
 
@@ -350,7 +338,7 @@ export default class DeviceCommandController {
 
   /** POST /api/v1/admin/devices/:id/commands/sync — à appeler après CHAQUE commande. */
   /*
-  Synchronisation des commandes en vol d'un boîtier réel : 
+  Synchronisation des commandes en vol d'un boîtier réel :
   1. résultats de flespi, 2. commandes encore en file, 3. mise à jour locale.
   */
   async syncAll(ctx: HttpContext) {
@@ -378,7 +366,7 @@ export default class DeviceCommandController {
 
   /** POST /api/v1/admin/devices/:id/commands/send — commande flespi brute (mêmes garde-fous). */
   /*
-  Envoi d'une commande brute vers le boîtier, validée contre le catalogue réel du boîtier. 
+  Envoi d'une commande brute vers le boîtier, validée contre le catalogue réel du boîtier.
   Habilitation « commande sensible » exigée.
   */
   async sendAll(ctx: HttpContext) {
@@ -445,7 +433,7 @@ export default class DeviceCommandController {
         .count('* as total')
         .groupBy('command_type'),
       base()
-        .whereIn('status', ['pending_validation', 'approved', 'queued', 'sent'])
+        .whereIn('status', [...IN_FLIGHT_STATUSES])
         .count('* as total')
         .first(),
     ])
@@ -470,26 +458,7 @@ export default class DeviceCommandController {
   3. renvoi du résultat
   */
   private async historyScoped(ctx: HttpContext, scope: TenantScope) {
-    const query = db.from('device_commands').where('device_id', ctx.params.id)
-    const lignes = await applyScope(query, scope)
-      .orderBy('requested_at', 'desc')
-      .limit(50)
-      .select(
-        'id',
-        'command_type',
-        'status',
-        'reason',
-        'origin',
-        'requested_by',
-        'requested_at',
-        'sent_at',
-        'acknowledged_at',
-        'failed_at',
-        'expires_at',
-        'error_message',
-        'provider_command_id',
-        'safety_context'
-      )
+    const lignes = await this.journal.history(ctx.params.id, scope.organizationId)
 
     return ctx.response.ok({ data: lignes })
   }
@@ -532,8 +501,8 @@ export default class DeviceCommandController {
   }
 
   /*
-  Resultats bruts renvoyés par flespi pour un boîtier réel : 
-  1. résultats de commandes, 2. commandes encore en file.
+  Resultats bruts renvoyés par flespi pour un boîtier réel :
+  2. résultats de commandes, 2. commandes encore en file.
   */
   private async resultsScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
@@ -552,12 +521,7 @@ export default class DeviceCommandController {
   private async cancelScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.boitier(ctx, scope)
     if (!device) return
-    const ligne = await db
-      .from('device_commands')
-      .where('id', ctx.params.commandId)
-      .where('device_id', device.id)
-      .whereIn('status', ['queued', 'sent'])
-      .first()
+    const ligne = await this.journal.findAwaitingProvider(ctx.params.commandId, device.id)
     if (!ligne) {
       return ctx.response.notFound({
         error: {
@@ -573,26 +537,14 @@ export default class DeviceCommandController {
         logger.warn({ err, commandId: ligne.id }, '[commands] annulation flespi sans effet')
       })
     }
-    const contexte = toExecutionContext(ctx)
-    await db.transaction(async (trx) => {
-      await trx.from('device_commands').where('id', ligne.id).update({ status: 'cancelled' })
-      await trx.table('device_command_logs').insert({
-        command_id: ligne.id,
-        status_from: ligne.status,
-        status_to: 'cancelled',
-        actor_id: contexte.actorId,
-        actor_type: 'user',
-        actor_ip: contexte.ip ?? null,
-        payload: JSON.stringify({}),
-      })
-    })
+    await this.journal.transition(ligne.id, ligne.status, 'cancelled', toExecutionContext(ctx), {})
     return ctx.response.noContent()
   }
 
   /*
   Envoi d'une commande brute (custom, setting.*…) sur un boîtier réel, avec les étapes suivantes :
-  1. Récupération du boîtier à partir du contexte et du scope.
-  2. Validation de la commande contre le catalogue réel du boîtier.
+  3. Récupération du boîtier à partir du contexte et du scope.
+  4. Validation de la commande contre le catalogue réel du boîtier.
   */
   private async sendScoped(ctx: HttpContext, scope: TenantScope) {
     const p = await ctx.request.validateUsing(flespiCommandValidator)
@@ -631,14 +583,14 @@ export default class DeviceCommandController {
   // -------------------------------------------------------------------------
   /*
   Execution d'une commande métier sur un boîtier réel, avec les étapes suivantes :
-  1. Récupération du boîtier à partir du contexte et du scope.
-  2. Validation de la commande contre le catalogue réel du boîtier.
+  5. Récupération du boîtier à partir du contexte et du scope.
+  6. Validation de la commande contre le catalogue réel du boîtier.
   NB : separer aller dans flespi_command_gateway et la logique métier dans ce controller(séparer les commandes dans un fichier externe)
   */
 
   private async executerMetier(ctx: HttpContext, commande: FlespiCommandName, scope: TenantScope) {
     const def = FLESPI_COMMANDS[commande]
-    await authorize(ctx, def.sensitive ? 'requestImmobilization' : 'manageVehicles')
+    await authorize(ctx, def.sensitive ? 'sendSensitiveCommands' : 'manageVehicles')
     const payload = await ctx.request.validateUsing(commandParamsValidator)
 
     if (def.data === null && !payload.data) {
@@ -712,12 +664,7 @@ export default class DeviceCommandController {
     // ---- ④ réconciliation : débloque le boîtier si la commande précédente est terminée
     const tracker = this.tracker
     await tracker.sync(device.id, flespiDeviceId)
-    const enVol = await db
-      .from('device_commands')
-      .where('device_id', device.id)
-      .whereIn('status', ['pending_validation', 'approved', 'queued', 'sent'])
-      .select('id', 'status', 'command_type', 'expires_at')
-      .first()
+    const enVol = await this.journal.findInFlight(device.id)
     if (enVol) {
       return ctx.response.conflict({
         error: {
@@ -732,36 +679,24 @@ export default class DeviceCommandController {
 
     const ttl = input.ttl ?? sisbmConfig.flespi.commandTtlSeconds
     const commandId = randomUUID()
-    const vehicule = await db
-      .from('device_assignments')
-      .where('device_id', device.id)
-      .whereRaw('upper_inf(period)')
-      .select('vehicle_id')
-      .first()
+    const maintenantTrace = DateTime.now()
 
     // ---- ① trace AVANT émission
-    await db.table('device_commands').insert({
+    await this.journal.insertQueued({
       id: commandId,
       // Organisation du BOÎTIER : identique à celle de l'acteur côté client,
       // indispensable côté admin (le super_admin n'est pas du même client).
-      organization_id: device.organizationId,
-      device_id: device.id,
-      vehicle_id: vehicule?.vehicle_id ?? null,
-      command_type: input.commandType,
-      status: 'queued',
+      organizationId: device.organizationId,
+      deviceId: device.id,
+      vehicleId: await this.journal.currentVehicleId(device.id),
+      commandType: input.commandType,
       reason: input.reason,
-      origin: 'manual',
-      requested_by: contexte.actorId,
-      requested_at: DateTime.now().toSQL(),
+      requestedBy: contexte.actorId,
       // Hors coupure moteur, CM-07 ne s'applique pas : seuil neutre.
-      safety_speed_limit_kph: 20,
-      requires_validation: false,
-      queued_at: DateTime.now().toSQL(),
-      expires_at: DateTime.now()
-        .plus({ seconds: input.mode === 'instant' ? 120 : ttl })
-        .toSQL(),
-      attempts: 0,
-      safety_context: JSON.stringify({ flespiCommand: input.cmd, mode: input.mode }),
+      safetySpeedLimitKph: 20,
+      queuedAt: maintenantTrace.toSQL()!,
+      expiresAt: maintenantTrace.plus({ seconds: input.mode === 'instant' ? 120 : ttl }).toSQL()!,
+      safetyContext: { flespiCommand: input.cmd, mode: input.mode },
     })
 
     // ---- ② émission
@@ -777,7 +712,7 @@ export default class DeviceCommandController {
             })
     } catch (err) {
       const raison = err instanceof FlespiApiError ? err.reason : (err as Error).message
-      await this.journaliser(
+      await this.journal.transition(
         commandId,
         'queued',
         'failed',
@@ -809,7 +744,7 @@ export default class DeviceCommandController {
     const maintenant = DateTime.now().toSQL()
     const statut =
       resultat.mode === 'queue' ? 'sent' : resultat.executed ? 'acknowledged' : 'failed'
-    await this.journaliser(
+    await this.journal.transition(
       commandId,
       'queued',
       statut,
@@ -844,36 +779,6 @@ export default class DeviceCommandController {
         response: resultat.response,
         expiresAt: resultat.expiresAt,
       },
-    })
-  }
-
-  /*
-  Logs d'une commande : 1 ligne dans device_commands + 1 ligne dans device_command_logs.
-  Le log est écrit dans la même transaction que la mise à jour de device_commands.
-  1. status_from = queued, sent, acknowledged, failed, cancelled, expired
-  */
-  private async journaliser(
-    commandId: string,
-    de: string,
-    vers: string,
-    contexte: ReturnType<typeof toExecutionContext>,
-    payload: Record<string, unknown>,
-    champs: Record<string, unknown>
-  ) {
-    await db.transaction(async (trx) => {
-      await trx
-        .from('device_commands')
-        .where('id', commandId)
-        .update({ status: vers, ...champs })
-      await trx.table('device_command_logs').insert({
-        command_id: commandId,
-        status_from: de,
-        status_to: vers,
-        actor_id: contexte.actorId,
-        actor_type: 'user',
-        actor_ip: contexte.ip ?? null,
-        payload: JSON.stringify(payload),
-      })
     })
   }
 

@@ -26,12 +26,11 @@ const IDS = {
   device: '22222222-2222-4222-8222-222222222222',
   vehicle: '33333333-3333-4333-8333-333333333333',
   requester: '44444444-4444-4444-8444-444444444444',
-  validator: '55555555-5555-4555-8555-555555555555',
 }
 
 const NOW = new Date('2026-08-04T10:00:00.000Z')
 
-function buildRequest(overrides: Partial<{ speedKph: number; requiresValidation: boolean }> = {}) {
+function buildRequest(overrides: Partial<{ speedKph: number }> = {}) {
   const reason = Reason.create('Vehicule signale vole par le client')
   if (!reason.ok) throw new Error('fixture invalide')
 
@@ -52,7 +51,6 @@ function buildRequest(overrides: Partial<{ speedKph: number; requiresValidation:
     currentSpeed: speed.value,
     ignition: false,
     safetySpeedLimit: limit.value,
-    requiresValidation: overrides.requiresValidation ?? true,
     ttlMinutes: 15,
     now: NOW,
   })
@@ -68,12 +66,13 @@ test.group('DeviceCommand — garde-fou de vitesse (CM-07)', () => {
     assert.deepInclude(result.error.details, { currentKph: 47, limitKph: 5 })
   })
 
-  test('accepte la coupure véhicule à l’arrêt', ({ assert }) => {
+  test('accepte la coupure véhicule à l’arrêt, prête à être émise', ({ assert }) => {
     const result = buildRequest({ speedKph: 0 })
 
     assert.isTrue(result.ok)
     if (!result.ok) return
-    assert.equal(result.value.status, 'pending_validation')
+    // Plus de double validation : la commande naît directement `approved`.
+    assert.equal(result.value.status, 'approved')
   })
 
   test('accepte à vitesse résiduelle, exactement au seuil', ({ assert }) => {
@@ -103,55 +102,17 @@ test.group('DeviceCommand — motif obligatoire (CM-08)', () => {
   })
 })
 
-test.group('DeviceCommand — séparation des rôles', () => {
-  test('refuse que le demandeur valide sa propre commande', ({ assert }) => {
-    const created = buildRequest()
-    assert.isTrue(created.ok)
-    if (!created.ok) return
-
-    const speed = Speed.fromKph(0)
-    if (!speed.ok) return
-
-    const result = created.value.validate({
-      validatedBy: ActorId.from(IDS.requester), // le demandeur lui-même
-      currentSpeed: speed.value,
-      now: NOW,
-    })
-
-    assert.isFalse(result.ok)
-    if (result.ok) return
-    assert.equal(result.error.code, 'E_SELF_VALIDATION')
-  })
-
-  test('accepte la validation par un second opérateur', ({ assert }) => {
-    const created = buildRequest()
-    if (!created.ok) return
-    const speed = Speed.fromKph(0)
-    if (!speed.ok) return
-
-    const result = created.value.validate({
-      validatedBy: ActorId.from(IDS.validator),
-      currentSpeed: speed.value,
-      now: NOW,
-    })
-
-    assert.isTrue(result.ok)
-    assert.equal(created.value.status, 'approved')
-  })
-})
-
-test.group('DeviceCommand — revérification à la validation', () => {
-  test('refuse la validation si le véhicule a redémarré entre-temps', ({ assert }) => {
+test.group('DeviceCommand — revérification avant émission', () => {
+  test('refuse la mise en file si le véhicule a redémarré entre-temps', ({ assert }) => {
     // Scénario réel : demande faite à l'arrêt, le véhicule repart avant
-    // que le superviseur ne valide.
+    // que la commande ne parte vers le boîtier.
     const created = buildRequest({ speedKph: 0 })
     if (!created.ok) return
 
     const speedNow = Speed.fromKph(62)
     if (!speedNow.ok) return
 
-    const result = created.value.validate({
-      validatedBy: ActorId.from(IDS.validator),
+    const result = created.value.queue({
       currentSpeed: speedNow.value,
       now: new Date(NOW.getTime() + 60_000),
     })
@@ -159,19 +120,28 @@ test.group('DeviceCommand — revérification à la validation', () => {
     assert.isFalse(result.ok)
     if (result.ok) return
     assert.equal(result.error.code, 'E_VEHICLE_IN_MOTION')
-    assert.equal(created.value.status, 'pending_validation', 'le statut ne doit pas bouger')
+    assert.equal(created.value.status, 'approved', 'le statut ne doit pas bouger')
+  })
+
+  test('refuse la coupure si la vitesse actuelle est inconnue', ({ assert }) => {
+    const created = buildRequest()
+    if (!created.ok) return
+
+    const result = created.value.queue({ currentSpeed: null, now: NOW })
+    assert.isFalse(result.ok)
+    if (result.ok) return
+    assert.equal(result.error.code, 'E_UNSAFE_SPEED')
   })
 })
 
 test.group('DeviceCommand — expiration', () => {
-  test('refuse la validation d’une commande expirée', ({ assert }) => {
+  test('refuse d’émettre une commande expirée', ({ assert }) => {
     const created = buildRequest()
     if (!created.ok) return
     const speed = Speed.fromKph(0)
     if (!speed.ok) return
 
-    const result = created.value.validate({
-      validatedBy: ActorId.from(IDS.validator),
+    const result = created.value.queue({
       currentSpeed: speed.value,
       now: new Date(NOW.getTime() + 16 * 60_000), // TTL = 15 min
     })
@@ -181,20 +151,16 @@ test.group('DeviceCommand — expiration', () => {
     assert.equal(result.error.code, 'E_COMMAND_EXPIRED')
   })
 
-  test('autorise le refus d’une commande expirée', ({ assert }) => {
-    // Refuser reste possible après expiration : c'est une clôture de dossier,
+  test('autorise la clôture d’une commande expirée', ({ assert }) => {
+    // Expirer reste possible après l'échéance : c'est une clôture de dossier,
     // pas une action sur le véhicule.
     const created = buildRequest()
     if (!created.ok) return
 
-    const result = created.value.reject({
-      rejectedBy: ActorId.from(IDS.validator),
-      rejectionReason: 'Demande caduque',
-      now: new Date(NOW.getTime() + 60 * 60_000),
-    })
+    const result = created.value.expire(new Date(NOW.getTime() + 60 * 60_000))
 
     assert.isTrue(result.ok)
-    assert.equal(created.value.status, 'rejected')
+    assert.equal(created.value.status, 'expired')
   })
 })
 
@@ -203,7 +169,7 @@ test.group('DeviceCommand — machine à états', () => {
     const created = buildRequest()
     if (!created.ok) return
 
-    // pending_validation -> sent est interdit : il faut approuver puis mettre en file
+    // approved -> sent est interdit : il faut d'abord mettre en file
     const result = created.value.markSent({ providerCommandId: 'flespi-1', now: NOW })
 
     assert.isFalse(result.ok)
@@ -212,7 +178,7 @@ test.group('DeviceCommand — machine à états', () => {
   })
 
   test('déroule le cycle nominal complet', ({ assert }) => {
-    const created = buildRequest({ requiresValidation: false })
+    const created = buildRequest()
     if (!created.ok) return
     const command = created.value
     const speed = Speed.fromKph(0)
@@ -228,19 +194,19 @@ test.group('DeviceCommand — machine à états', () => {
   })
 
   test('refuse la mise en file si le véhicule roule à nouveau', ({ assert }) => {
-    const created = buildRequest({ requiresValidation: false })
+    const created = buildRequest()
     if (!created.ok) return
     const speedNow = Speed.fromKph(30)
     if (!speedNow.ok) return
 
-    // Troisième contrôle de vitesse : demande, validation, puis mise en file.
+    // Second contrôle de vitesse : à la demande, puis à la mise en file.
     const result = created.value.queue({ currentSpeed: speedNow.value, now: NOW })
     assert.isFalse(result.ok)
   })
 })
 
 test.group('DeviceCommand — événements de domaine', () => {
-  test('émet un événement à la demande puis à la validation', ({ assert }) => {
+  test('émet un événement à la demande puis à l’émission', ({ assert }) => {
     const created = buildRequest()
     if (!created.ok) return
     const command = created.value
@@ -254,15 +220,12 @@ test.group('DeviceCommand — événements de domaine', () => {
 
     const speed = Speed.fromKph(0)
     if (!speed.ok) return
-    command.validate({
-      validatedBy: ActorId.from(IDS.validator),
-      currentSpeed: speed.value,
-      now: NOW,
-    })
+    command.queue({ currentSpeed: speed.value, now: NOW })
+    command.markSent({ providerCommandId: 'flespi-7', now: NOW })
 
-    const afterValidation = command.pullDomainEvents()
-    assert.lengthOf(afterValidation, 1)
-    assert.equal(afterValidation[0].eventName, 'security.immobilization.validated')
+    const afterDispatch = command.pullDomainEvents()
+    assert.lengthOf(afterDispatch, 1)
+    assert.equal(afterDispatch[0].eventName, 'security.command.dispatched')
   })
 })
 

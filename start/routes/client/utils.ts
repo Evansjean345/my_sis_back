@@ -8,10 +8,10 @@ const OrganizationController = () =>
 export const getUtilsRoutes = () => {
   router
     .group(() => {
-      router.get('/commands/stats', [CommandController, 'stats'])
-      router.get('/commands', [CommandController, 'index'])
-      router.get('/stats/activity', [OrganizationController, 'dailyActivity'])
-      router.get('/overview', [OrganizationController, 'overview'])
+      router.get('/commands/stats', [CommandController, 'stats' as never])
+      router.get('/commands', [CommandController, 'index' as never])
+      router.get('/stats/activity', [OrganizationController, 'dailyActivity' as never])
+      router.get('/overview', [OrganizationController, 'overview' as never])
     })
     .where('id', router.matchers.uuid())
 }

@@ -33,7 +33,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- même une erreur de code ne peut pas effacer une preuve.
 REVOKE UPDATE, DELETE ON positions        FROM sisbm_app;
 REVOKE UPDATE, DELETE ON audit_logs       FROM sisbm_app;
-REVOKE UPDATE, DELETE ON sms_transactions FROM sisbm_app;
 REVOKE         DELETE ON events           FROM sisbm_app;
 REVOKE UPDATE, DELETE ON device_command_logs FROM sisbm_app;
 REVOKE         DELETE ON incident_timeline   FROM sisbm_app;

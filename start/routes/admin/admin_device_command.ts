@@ -6,7 +6,7 @@ const CommandController = () =>
 /**
  * Commandes métier acceptées par `POST /admin/devices/:id/commands/:command`.
  * La coupure et le rétablissement moteur n'y figurent PAS : ils passent par
- * `/security/*` (garde-fou de vitesse CM-07, double validation).
+ * `/security/*` (garde-fou de vitesse CM-07).
  */
 //à mettre dans un fichier
 const COMMANDES_METIER =

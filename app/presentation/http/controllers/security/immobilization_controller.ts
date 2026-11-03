@@ -1,14 +1,12 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { RequestImmobilization } from '#application/security/use_cases/request_immobilization'
-import { ValidateImmobilization } from '#application/security/use_cases/validate_immobilization'
 import { DispatchEngineCommand } from '#application/security/use_cases/dispatch_engine_command'
 import { RequestEngineRestore } from '#application/security/use_cases/request_engine_restore'
 import { FlespiCommandTracker } from '#infrastructure/gateways/flespi/flespi_command_tracker'
 import {
   requestImmobilizationValidator,
   restoreEngineValidator,
-  validateImmobilizationValidator,
 } from '#presentation/http/validators/security/immobilization_validators'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 import { authorize } from '#presentation/http/support/authorize'
@@ -30,42 +28,18 @@ import {
 export default class ImmobilizationController {
   constructor(
     private readonly requestImmobilization: RequestImmobilization,
-    private readonly validateImmobilization: ValidateImmobilization,
     private readonly dispatchEngineCommand: DispatchEngineCommand,
     private readonly requestEngineRestore: RequestEngineRestore,
     private readonly tracker: FlespiCommandTracker
   ) {}
 
-  /**
-   Prmeière fonction distincte pour l'immobilsation controllée(demande)
-   */
-  /** POST /api/v1/security/immobilizations */
-  /*
-  async store(ctx: HttpContext) {
-    await authorize(ctx, 'requestImmobilization')
-    const payload = await ctx.request.validateUsing(requestImmobilizationValidator)
-
-    const result = await this.requestImmobilization.execute({
-      context: toExecutionContext(ctx),
-      vehicleId: payload.vehicleId,
-      reason: payload.reason,
-      origin: 'manual',
-      alertId: payload.alertId ?? null,
-    })
-
-    if (!result.ok) {
-      return ctx.response.status(result.error.httpStatus).send({ error: result.error.toJSON() })
-    }
-
-    return ctx.response.status(200).send({ data: result.value })
-  } */
   //Etape 1 et 3 immobilization et dispatch
   /*
   Fonction finale pour l'immobilisation controllée(demande) et l'envoi de la commande
   */
   /** POST /api/v1/security/immobilizations */
   async store(ctx: HttpContext) {
-    await authorize(ctx, 'requestImmobilization')
+    await authorize(ctx, 'immobilizeVehicles')
     const payload = await ctx.request.validateUsing(requestImmobilizationValidator)
 
     // Cloisonnement : le cas d'usage lit l'état du véhicule sans filtre
@@ -91,11 +65,7 @@ export default class ImmobilizationController {
       return ctx.response.status(demande.error.httpStatus).send({ error: demande.error.toJSON() })
     }
 
-    // Sans double validation, la commande est déjà `approved` : on émet dans la foulée.
-    if (demande.value.requiresValidation) {
-      return ctx.response.ok({ data: demande.value }) // comportement historique préservé
-    }
-
+    // La commande naît `approved` : on l'émet dans la foulée.
     //use_case pour envoyer la commande d'immobilisation au tracker
     const envoi = await this.dispatchEngineCommand.execute({
       context: contexte,
@@ -109,44 +79,16 @@ export default class ImmobilizationController {
     return ctx.response.accepted({ data: envoi.value })
   }
 
-  /** POST /api/v1/security/immobilizations/:id/validation */
-  //requete pour la validation de l'immobilisation --- à supprimer la double validation est inutile
-  async validate(ctx: HttpContext) {
-    await authorize(ctx, 'validateImmobilization')
-    const payload = await ctx.request.validateUsing(validateImmobilizationValidator)
-    const commande = await commandInScope(ctx, ctx.params.id)
-    if (!commande) return notFoundInScope(ctx, 'Commande')
-
-    const result = await this.validateImmobilization.execute({
-      context: { ...toExecutionContext(ctx), organizationId: commande.organizationId },
-      commandId: ctx.params.id,
-      decision: payload.decision,
-      rejectionReason: payload.rejectionReason,
-    })
-
-    if (!result.ok) {
-      return ctx.response.status(result.error.httpStatus).send({ error: result.error.toJSON() })
-    }
-
-    return ctx.response.ok({ data: result.value })
-  }
-
   /**
    * POST /api/v1/security/immobilizations/:id/dispatch
    *
-   * ÉMISSION RÉELLE vers le boîtier — la seule route du système qui agit
-   * physiquement sur un véhicule. Elle n'aboutit qu'après la demande (premier
-   * contrôle de vitesse) et la validation par un second opérateur (deuxième
-   * contrôle) ; le cas d'usage en effectue un troisième avant d'émettre.
-   *
-   * Étape volontairement SÉPARÉE de la validation : valider est une décision,
-   * émettre est un acte. Les tracer séparément permet de savoir, en audit, si
-   * une coupure validée a réellement été transmise.
+   * RELANCE de l'émission d'une coupure restée `approved` : `store` émet
+   * déjà dans la foulée, cette route ne sert que si l'émission n'a pas pu
+   * démarrer (immobilisation désactivée, position absente au moment de
+   * l'envoi…). Le cas d'usage refait le contrôle de vitesse avant d'émettre.
    */
-  //envoi d'une commande à felspi pour l'immobilisation du véhicule après la validation de l'immobilisation
-  //à supprimer garder ou supprimer -- à definir après code review(point final à supprimer)
   async dispatch(ctx: HttpContext) {
-    await authorize(ctx, 'validateImmobilization')
+    await authorize(ctx, 'immobilizeVehicles')
     const commande = await commandInScope(ctx, ctx.params.id)
     if (!commande) return notFoundInScope(ctx, 'Commande')
 
@@ -165,8 +107,7 @@ export default class ImmobilizationController {
    * POST /api/v1/security/restorations
    * body : { vehicleId, reason }
    *
-   * Rétablit le moteur, puis transmet immédiatement la commande : on ne fait
-   * pas attendre un véhicule immobilisé qu'un second opérateur se connecte.
+   * Rétablit le moteur, puis transmet immédiatement la commande.
    *
    * La réconciliation préalable avec flespi libère le boîtier si la coupure
    * précédente est terminée sans que personne n'ait consulté son résultat
@@ -174,7 +115,7 @@ export default class ImmobilizationController {
    */
   //retablissement du moteur d'un véhicule après l'immobilisation
   async restore(ctx: HttpContext) {
-    await authorize(ctx, 'requestImmobilization')
+    await authorize(ctx, 'immobilizeVehicles')
     const payload = await ctx.request.validateUsing(restoreEngineValidator)
     const vehicule = await vehicleInScope(ctx, payload.vehicleId)
     if (!vehicule) return notFoundInScope(ctx, 'Véhicule')

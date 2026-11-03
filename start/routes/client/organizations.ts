@@ -8,7 +8,10 @@ const DeviceGroupController = () =>
   import('#presentation/http/controllers/fleet/device_group_controller')
 
 export const organizationRoutes = () => {
-  router.get('/organization', [OrganizationController, 'current'])
+  router.get(
+    '/organization',
+    '#presentation/http/controllers/identity/organization_controller.current'
+  )
 
   router
     .group(() => {
