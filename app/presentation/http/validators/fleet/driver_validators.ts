@@ -17,6 +17,12 @@ const E164 = /^\+[1-9][0-9]{7,14}$/
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const driverFields = {
+  /**
+   * Organisation du conducteur — FACULTATIVE (migration 019).
+   * Absente : celle de l'acteur pour un compte client, aucune pour
+   * l'exploitant plateforme. `null` explicite : aucune (exploitant seulement).
+   */
+  organizationId: vine.string().uuid().nullable().optional(),
   firstName: vine.string().trim().minLength(1).maxLength(60),
   lastName: vine.string().trim().minLength(1).maxLength(60),
   phone: vine.string().trim().regex(E164).optional(),
@@ -37,6 +43,8 @@ export const createDriverValidator = vine.compile(vine.object(driverFields))
 /** Champs facultatifs ; `null` efface (véhicule, téléphone, e-mail, permis…). */
 export const updateDriverValidator = vine.compile(
   vine.object({
+    /** Changer d'organisation, ou `null` pour la retirer (exploitant seulement). */
+    organizationId: vine.string().uuid().nullable().optional(),
     firstName: driverFields.firstName.clone().optional(),
     lastName: driverFields.lastName.clone().optional(),
     phone: vine.string().trim().regex(E164).nullable().optional(),
@@ -58,6 +66,20 @@ export const assignDriverVehicleValidator = vine.compile(
   })
 )
 
+/** PUT /admin/drivers/:id/organization — rattacher le conducteur à une organisation. */
+export const assignDriverOrganizationValidator = vine.compile(
+  vine.object({
+    organizationId: vine.string().uuid(),
+  })
+)
+
+/** POST /drivers/:id/groups — ajouter le conducteur à un ou plusieurs groupes (idempotent). */
+export const assignDriverGroupsValidator = vine.compile(
+  vine.object({
+    driverGroupIds: vine.array(vine.string().uuid()).minLength(1),
+  })
+)
+
 const listFields = {
   page: vine.number().min(1).optional(),
   perPage: vine.number().min(1).max(100).optional(),
@@ -73,5 +95,10 @@ const listFields = {
 export const listDriversValidator = vine.compile(vine.object(listFields))
 
 export const adminListDriversValidator = vine.compile(
-  vine.object({ ...listFields, organizationId: vine.string().uuid().optional() })
+  vine.object({
+    ...listFields,
+    organizationId: vine.string().uuid().optional(),
+    /** `true` : seulement le vivier sans organisation. */
+    withoutOrganization: vine.boolean().optional(),
+  })
 )

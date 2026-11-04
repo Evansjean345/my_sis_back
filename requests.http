@@ -754,6 +754,24 @@ Content-Type: application/json
 ###
 @driverId = {{createDriver.response.body.data.id}}
 
+### EXPLOITANT — conducteur SANS organisation (vivier), migration 019
+POST {{api}}/admin/drivers
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "firstName": "Ibrahim", "lastName": "Koné", "licenseNumber": "CI-900001" }
+
+### EXPLOITANT — le vivier
+GET {{api}}/admin/drivers?withoutOrganization=true
+Authorization: Bearer {{superToken}}
+
+### EXPLOITANT — rattacher un conducteur à une organisation (null = la retirer)
+PATCH {{api}}/admin/drivers/{{driverId}}
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "organizationId": "{{orgId}}" }
+
 ### changer de véhicule (null = détacher)
 PUT {{api}}/drivers/{{driverId}}/vehicle
 Authorization: Bearer {{token}}
@@ -789,3 +807,45 @@ Content-Type: application/json
 ###
 GET {{api}}/drivers?driverGroupId={{driverGroupId}}
 Authorization: Bearer {{token}}
+
+### ═════════════════════════════ ADMIN — CONDUCTEUR ↔ ORGANISATION / GROUPE
+### créer en SÉLECTIONNANT une organisation
+# @name adminDriver
+POST {{api}}/admin/drivers
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "firstName": "Kouassi", "lastName": "Konan", "organizationId": "{{orgId}}", "licenseNumber": "CI-555" }
+
+###
+@adminDriverId = {{adminDriver.response.body.data.id}}
+
+### ajouter à une organisation (ou déplacer) — véhicule incompatible retiré, groupes quittés
+PUT {{api}}/admin/drivers/{{adminDriverId}}/organization
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "organizationId": "{{orgId}}" }
+
+### ajouter à un ou plusieurs groupes (même organisation que le conducteur)
+POST {{api}}/admin/drivers/{{adminDriverId}}/groups
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "driverGroupIds": ["{{driverGroupId}}"] }
+
+### groupes du conducteur
+GET {{api}}/admin/drivers/{{adminDriverId}}/groups
+Authorization: Bearer {{superToken}}
+
+### retirer d'un groupe
+DELETE {{api}}/admin/drivers/{{adminDriverId}}/groups/{{driverGroupId}}
+Authorization: Bearer {{superToken}}
+
+### retirer de l'organisation (→ vivier de l'exploitant)
+DELETE {{api}}/admin/drivers/{{adminDriverId}}/organization
+Authorization: Bearer {{superToken}}
+
+### supprimer le conducteur
+DELETE {{api}}/admin/drivers/{{adminDriverId}}
+Authorization: Bearer {{superToken}}

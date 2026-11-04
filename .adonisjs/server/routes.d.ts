@@ -126,6 +126,9 @@ export type ScannedRoutes = {
     'driver.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.assign_vehicle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'groupId': ParamValue} }
     'driver.vehicle_drivers': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.index': { paramsTuple?: []; params?: {} }
     'driver_group.store': { paramsTuple?: []; params?: {} }
@@ -226,6 +229,11 @@ export type ScannedRoutes = {
     'admin.driver.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.assign_vehicle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.assign_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.remove_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'groupId': ParamValue} }
     'admin.driver_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -303,6 +311,7 @@ export type ScannedRoutes = {
     'usage_schedule.group_schedules': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.index': { paramsTuple?: []; params?: {} }
     'driver.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.vehicle_drivers': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.index': { paramsTuple?: []; params?: {} }
     'driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -353,6 +362,7 @@ export type ScannedRoutes = {
     'admin.usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.index_all': { paramsTuple?: []; params?: {} }
     'admin.driver.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -422,6 +432,7 @@ export type ScannedRoutes = {
     'usage_schedule.group_schedules': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.index': { paramsTuple?: []; params?: {} }
     'driver.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.vehicle_drivers': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.index': { paramsTuple?: []; params?: {} }
     'driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -472,6 +483,7 @@ export type ScannedRoutes = {
     'admin.usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.index_all': { paramsTuple?: []; params?: {} }
     'admin.driver.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -534,6 +546,7 @@ export type ScannedRoutes = {
     'usage_schedule.attach_vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver.store': { paramsTuple?: []; params?: {} }
+    'driver.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.store': { paramsTuple?: []; params?: {} }
     'driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
@@ -558,6 +571,7 @@ export type ScannedRoutes = {
     'admin.usage_schedule.attach_vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.store_all': { paramsTuple?: []; params?: {} }
+    'admin.driver.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.store': { paramsTuple?: []; params?: {} }
@@ -576,6 +590,7 @@ export type ScannedRoutes = {
     'usage_schedule.detach_vehicle': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'usage_schedule.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'driver.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'driver.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'groupId': ParamValue} }
     'driver_group.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.device_group.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -591,6 +606,8 @@ export type ScannedRoutes = {
     'admin.usage_schedule.detach_vehicle': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.usage_schedule.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.driver.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.remove_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.detach_group': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'groupId': ParamValue} }
     'admin.driver_group.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -621,6 +638,7 @@ export type ScannedRoutes = {
     'driver.assign_vehicle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.replace_windows': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.assign_vehicle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.driver.assign_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
 }
 declare module '@adonisjs/core/types/http' {

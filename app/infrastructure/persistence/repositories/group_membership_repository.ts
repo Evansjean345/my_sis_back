@@ -22,6 +22,8 @@ import type {
 interface Tables {
   /** Table d'association. */
   pivot: string
+  /** Table des groupes. */
+  groupTable: string
   /** Colonne portant le groupe. */
   groupColumn: string
   /** Colonne portant le membre. */
@@ -40,6 +42,7 @@ interface Tables {
 //tables vehicle_group_members
 const VEHICLES: Tables = {
   pivot: 'vehicle_group_members',
+  groupTable: 'vehicle_groups',
   groupColumn: 'vehicle_group_id',
   memberColumn: 'vehicle_id',
   memberTable: 'vehicles',
@@ -50,6 +53,7 @@ const VEHICLES: Tables = {
 //tables device_group_members
 const DEVICES: Tables = {
   pivot: 'device_group_members',
+  groupTable: 'device_groups',
   groupColumn: 'device_group_id',
   memberColumn: 'device_id',
   memberTable: 'devices',
@@ -60,6 +64,7 @@ const DEVICES: Tables = {
 //tables driver_group_members — libellé : `full_name`, colonne générée (migration 018)
 const DRIVERS: Tables = {
   pivot: 'driver_group_members',
+  groupTable: 'driver_groups',
   groupColumn: 'driver_group_id',
   memberColumn: 'driver_id',
   memberTable: 'drivers',
@@ -163,6 +168,24 @@ class LucidGroupMembership implements GroupMembershipRepository {
       unchanged: [...dejaMembres],
       rejected: candidats.filter((id) => !eligibleIds.includes(id)),
     }
+  }
+
+  /**
+   * Retire un membre des groupes qui n'appartiennent pas à `organizationId`
+   * (tous ses groupes si `null`). Appelé quand l'organisation d'un membre
+   * change : le trigger CM-17 ne contrôle que les INSERT d'appartenance, une
+   * appartenance devenue inter-clients doit être défaite explicitement.
+   */
+  async pruneForeignMemberships(memberId: string, organizationId: string | null): Promise<number> {
+    const n = await db
+      .from(this.t.pivot)
+      .where(this.t.memberColumn, memberId)
+      .whereIn(this.t.groupColumn, (sub) => {
+        sub.from(this.t.groupTable).select('id')
+        if (organizationId) sub.whereNot('organization_id', organizationId)
+      })
+      .delete()
+    return Number(Array.isArray(n) ? n.length : n)
   }
 
   /*

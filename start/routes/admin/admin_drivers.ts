@@ -12,9 +12,17 @@ export const adminDriverRoutes = () => {
       router.patch('/:id', [DriverController, 'update'])
       router.delete('/:id', [DriverController, 'destroy'])
       router.put('/:id/vehicle', [DriverController, 'assignVehicle'])
+      // organisation : ajouter (ou déplacer) / retirer
+      router.put('/:id/organization', [DriverController, 'assignOrganization'])
+      router.delete('/:id/organization', [DriverController, 'removeOrganization'])
+      // groupes du conducteur
+      router.get('/:id/groups', [DriverController, 'groups'])
+      router.post('/:id/groups', [DriverController, 'attachGroups'])
+      router.delete('/:id/groups/:groupId', [DriverController, 'detachGroup'])
     })
     .prefix('/drivers')
     .where('id', router.matchers.uuid())
+    .where('groupId', router.matchers.uuid())
 
   router
     .group(() => {

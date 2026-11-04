@@ -52,7 +52,7 @@ export class DriverSchema extends BaseModel {
   @column()
   declare notes: string | null
   @column()
-  declare organizationId: string
+  declare organizationId: string | null
   @column()
   declare phone: string | null
   @column()

@@ -3,7 +3,8 @@
 **Extension du Jalon 3** — application automatique des calendriers d'utilisation au moteur,
 immobilisation contrôlée d'un groupe de véhicules, conducteurs et groupes de conducteurs.
 
-Migrations **017** (`create_schedule_enforcement_tables`) et **018** (`create_drivers_tables`).
+Migrations **017** (`create_schedule_enforcement_tables`), **018** (`create_drivers_tables`) et
+**019** (`make_driver_organization_optional`).
 
 ---
 
@@ -155,32 +156,79 @@ Limitation de débit `sensitive`. Tracé sous `security.vehicle_group.immobiliza
 
 ### 4.1 Tables (migration 018)
 
-- **`drivers`** : organisation, véhicule rattaché (facultatif, `ON DELETE SET NULL`), prénom, nom,
+- **`drivers`** : organisation (**facultative**, migration 019), véhicule rattaché (facultatif,
+  `ON DELETE SET NULL`), prénom, nom,
   `full_name` (colonne **générée**), téléphone E.164, e-mail, matricule, permis (numéro,
   catégories `A A1 B C D E F`, expiration), statut `active | inactive | suspended`.
-  Uniques par organisation : numéro de permis, matricule. Plusieurs conducteurs peuvent partager
+  Uniques par organisation : numéro de permis, matricule (`NULLS NOT DISTINCT` : les conducteurs
+  sans organisation forment un périmètre d'unicité à part). Plusieurs conducteurs peuvent partager
   un véhicule (équipes).
 - **`driver_groups`** / **`driver_group_members`** : symétriques des groupes de véhicules et de
   boîtiers ; troisième famille du socle commun `GroupControllerBase`.
-- Cloisonnement par trigger : conducteur ↔ véhicule (`sisbm_check_driver_vehicle_tenant`) et
-  membre ↔ groupe (`sisbm_check_group_member_tenant`, nouvelle branche).
+- Cloisonnement par trigger : conducteur ↔ véhicule (`sisbm_check_driver_vehicle_tenant`, sans
+  objet si le conducteur n'a pas d'organisation) et membre ↔ groupe
+  (`sisbm_check_group_member_tenant`, nouvelle branche).
 
-### 4.2 Routes
+### 4.2 Organisation facultative (migration 019)
+
+L'organisation vient de la requête (`organizationId`), elle n'est jamais imposée en dur :
+
+| `organizationId` dans le corps | Compte client                  | Exploitant (`*`)                |
+| ------------------------------ | ------------------------------ | ------------------------------- |
+| absent                         | son organisation               | aucune (sur `/admin/drivers`)   |
+| uuid                           | la sienne seulement, sinon 403 | toute organisation existante    |
+| `null`                         | 403                            | aucune : vivier de l'exploitant |
+
+- Un conducteur **sans organisation** n'est visible que de l'exploitant
+  (`GET /admin/drivers?withoutOrganization=true`). Il peut être rattaché au véhicule de n'importe
+  quel client, qui le voit alors dans `GET /vehicles/:id/drivers`.
+- Il n'entre dans aucun groupe de conducteurs (les groupes appartiennent à un client).
+- `PATCH` peut changer l'organisation (exploitant) : le véhicule doit appartenir à la nouvelle
+  organisation (sinon `422 E_VEHICLE_OUT_OF_SCOPE`), et le conducteur quitte automatiquement les
+  groupes de l'ancienne.
+- Rollback de la 019 refusé tant qu'il reste des conducteurs sans organisation.
+
+### 4.3 Routes
 
 Habilitations `vehicle:read` / `vehicle:write` : gérer les conducteurs, c'est gérer la flotte.
 
-| Route                                 | Rôle                                                        |
-| ------------------------------------- | ----------------------------------------------------------- |
-| `GET    /api/v1/drivers`              | `?search=&status=&vehicleId=&driverGroupId=&unassigned=`    |
-| `POST   /api/v1/drivers`              | création (véhicule de la même organisation)                 |
-| `GET    /api/v1/drivers/:id`          | fiche, véhicule, groupes                                    |
-| `PATCH  /api/v1/drivers/:id`          | `null` efface un champ                                      |
-| `DELETE /api/v1/drivers/:id`          | suppression logique (détaché du véhicule)                   |
-| `PUT    /api/v1/drivers/:id/vehicle`  | `{ vehicleId: uuid \| null }`                               |
-| `GET    /api/v1/vehicles/:id/drivers` | conducteurs d'un véhicule                                   |
-| `/api/v1/driver-groups…`              | mêmes routes que `/vehicle-groups`, membres sous `/drivers` |
+| Route                                        | Rôle                                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| `GET    /api/v1/drivers`                     | `?search=&status=&vehicleId=&driverGroupId=&unassigned=`    |
+| `POST   /api/v1/drivers`                     | création, `organizationId` facultatif (cf. 4.2)             |
+| `GET    /api/v1/drivers/:id`                 | fiche, véhicule, groupes                                    |
+| `PATCH  /api/v1/drivers/:id`                 | `null` efface un champ                                      |
+| `DELETE /api/v1/drivers/:id`                 | suppression logique (détaché du véhicule)                   |
+| `PUT    /api/v1/drivers/:id/vehicle`         | `{ vehicleId: uuid \| null }`                               |
+| `GET    /api/v1/drivers/:id/groups`          | groupes du conducteur                                       |
+| `POST   /api/v1/drivers/:id/groups`          | `{ driverGroupIds }` — ajout idempotent                     |
+| `DELETE /api/v1/drivers/:id/groups/:groupId` | retrait d'un groupe                                         |
+| `GET    /api/v1/vehicles/:id/drivers`        | conducteurs d'un véhicule                                   |
+| `/api/v1/driver-groups…`                     | mêmes routes que `/vehicle-groups`, membres sous `/drivers` |
 
-Admin (`*`) : `/api/v1/admin/drivers` et `/api/v1/admin/driver-groups` (`indexAll` / `storeAll`).
+Admin (`*`) : `/api/v1/admin/drivers` (`?organizationId=&withoutOrganization=`, création avec ou
+sans `organizationId`) et `/api/v1/admin/driver-groups` (`indexAll` / `storeAll`).
+
+### 4.4 Administration : ajouter / retirer un conducteur d'une organisation ou d'un groupe
+
+| Route                                                | Qui               | Effet                                                                                     |
+| ---------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
+| `PUT    /api/v1/admin/drivers/:id/organization`      | exploitant (`*`)  | `{ organizationId }` : ajoute à une organisation, ou déplace d'une organisation à l'autre |
+| `DELETE /api/v1/admin/drivers/:id/organization`      | exploitant (`*`)  | retire de l'organisation : le conducteur rejoint le vivier                                |
+| `POST   /api/v1/{admin/}drivers/:id/groups`          | admin client, `*` | `{ driverGroupIds }` : groupes de la même organisation que le conducteur                  |
+| `DELETE /api/v1/{admin/}drivers/:id/groups/:groupId` | admin client, `*` | retire d'un groupe                                                                        |
+
+Conséquences d'un changement d'organisation, appliquées dans la foulée et renvoyées dans la
+réponse : le véhicule est retiré s'il n'appartient pas à la nouvelle organisation
+(`vehicleDetached`, toujours vrai lors d'un retrait), le conducteur quitte les groupes de
+l'ancienne (`groupsLeft`). Permis et matricule doivent rester uniques dans l'organisation
+d'arrivée (`409`). Audit : `fleet.driver.organization_removed` dans l'organisation quittée
+(sans révéler celle d'arrivée), `fleet.driver.organization_assigned` dans l'organisation rejointe.
+Un ajout / retrait de groupe depuis la fiche conducteur est tracé sous le groupe : il apparaît
+dans `/driver-groups/:id/audit-logs`.
+
+Erreurs : `E_DRIVER_WITHOUT_ORGANIZATION` (422, conducteur du vivier ajouté à un groupe),
+`E_GROUPS_OUT_OF_SCOPE` (422, aucun groupe exploitable).
 
 Le rattachement au véhicule est audité avant / après (`fleet.driver.vehicle_assigned`…) :
 c'est l'historique « qui conduisait ce véhicule à telle date ».
@@ -214,7 +262,7 @@ SCHEDULE_ENFORCE_BACKOFF_SECONDS=900
 
 ## 7. Mise en production
 
-1. `node ace migration:run` (017, 018) ;
+1. `node ace migration:run` (017, 018, 019) ;
 2. créer les calendriers, **vérifier avec `preview`** et `--dry-run` avant de rattacher ;
 3. lancer le moteur sous superviseur (PM2 / systemd), **une seule instance** :
    `node ace sisbm:schedules:enforce --watch` ;

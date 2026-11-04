@@ -11,9 +11,14 @@ export const driverRoutes = () => {
       router.patch('/:id', [DriverController, 'update'])
       router.delete('/:id', [DriverController, 'destroy'])
       router.put('/:id/vehicle', [DriverController, 'assignVehicle'])
+      // groupes du conducteur (vue depuis la fiche conducteur)
+      router.get('/:id/groups', [DriverController, 'groups'])
+      router.post('/:id/groups', [DriverController, 'attachGroups'])
+      router.delete('/:id/groups/:groupId', [DriverController, 'detachGroup'])
     })
     .prefix('/drivers')
     .where('id', router.matchers.uuid())
+    .where('groupId', router.matchers.uuid())
 
   router
     .get('/vehicles/:id/drivers', [DriverController, 'vehicleDrivers'])

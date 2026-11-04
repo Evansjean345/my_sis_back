@@ -12,7 +12,8 @@ export default class DriverModel extends BaseModel {
   static table = 'drivers'
 
   @column({ isPrimary: true }) declare id: string
-  @column({ columnName: 'organization_id' }) declare organizationId: string
+  /** Facultative (migration 019) : `null` = vivier de l'exploitant, hors de tout client. */
+  @column({ columnName: 'organization_id' }) declare organizationId: string | null
   @column({ columnName: 'vehicle_id' }) declare vehicleId: string | null
   @column({ columnName: 'first_name' }) declare firstName: string
   @column({ columnName: 'last_name' }) declare lastName: string
