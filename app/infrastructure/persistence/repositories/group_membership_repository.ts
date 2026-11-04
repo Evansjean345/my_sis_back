@@ -30,8 +30,11 @@ interface Tables {
   memberTable: string
   /** Colonne lisible par un humain (immatriculation, IMEI). */
   labelColumn: string
-  /** Colonne de `device_commands` qui référence ce type de membre. */
-  commandColumn: 'vehicle_id' | 'device_id'
+  /**
+   * Colonne de `device_commands` qui référence ce type de membre.
+   * `null` : aucune commande n'est émise sur ce type de membre (conducteurs).
+   */
+  commandColumn: 'vehicle_id' | 'device_id' | null
 }
 
 //tables vehicle_group_members
@@ -52,6 +55,16 @@ const DEVICES: Tables = {
   memberTable: 'devices',
   labelColumn: 'imei',
   commandColumn: 'device_id',
+}
+
+//tables driver_group_members — libellé : `full_name`, colonne générée (migration 018)
+const DRIVERS: Tables = {
+  pivot: 'driver_group_members',
+  groupColumn: 'driver_group_id',
+  memberColumn: 'driver_id',
+  memberTable: 'drivers',
+  labelColumn: 'full_name',
+  commandColumn: null,
 }
 
 class LucidGroupMembership implements GroupMembershipRepository {
@@ -96,7 +109,7 @@ class LucidGroupMembership implements GroupMembershipRepository {
 
   //retrouver les commands qu'un membre d'un groupe peut effectué
   async commandIdsForMembers(memberIds: string[]): Promise<string[]> {
-    if (memberIds.length === 0) return []
+    if (memberIds.length === 0 || this.t.commandColumn === null) return []
     const rows = await db
       .from('device_commands')
       .whereIn(this.t.commandColumn, memberIds)
@@ -194,5 +207,12 @@ export class LucidVehicleGroupMembership extends LucidGroupMembership {
 export class LucidDeviceGroupMembership extends LucidGroupMembership {
   constructor() {
     super(DEVICES)
+  }
+}
+
+//driver_group_members
+export class LucidDriverGroupMembership extends LucidGroupMembership {
+  constructor() {
+    super(DRIVERS)
   }
 }

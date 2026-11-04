@@ -48,6 +48,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   IMMOBILIZATION_COMMAND_TTL_MINUTES: Env.schema.number.optional(),
   IMMOBILIZATION_MAX_POSITION_AGE_SECONDS: Env.schema.number.optional(),
 
+  // ---------------------------------------------------------- immobilisation planifiée
+  SCHEDULE_ENFORCEMENT_ENABLED: Env.schema.boolean.optional(),
+  SCHEDULE_ENFORCE_INTERVAL_SECONDS: Env.schema.number.optional(),
+  SCHEDULE_ENFORCE_RETRY_SECONDS: Env.schema.number.optional(),
+  SCHEDULE_ENFORCE_BACKOFF_SECONDS: Env.schema.number.optional(),
+
   // ---------------------------------------------------------- ingestion
   INGEST_MAX_HDOP: Env.schema.number.optional(),
   INGEST_MIN_SATELLITES: Env.schema.number.optional(),

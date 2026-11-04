@@ -18,6 +18,7 @@ import {
   Reason,
   Speed,
   VehicleId,
+  type CommandOrigin,
 } from '#domain/security/value_objects'
 import {
   CommandAlreadyInFlightError,
@@ -31,7 +32,7 @@ export interface RequestImmobilizationInput {
   context: ExecutionContext
   vehicleId: string
   reason: string
-  origin?: 'manual' | 'policy' | 'api'
+  origin?: CommandOrigin
   policyId?: string | null
   alertId?: string | null
 }

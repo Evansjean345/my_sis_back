@@ -7,6 +7,7 @@ import type { AuditLogReader } from '#application/audit/ports'
 import type { GroupMembershipRepository } from '#application/fleet/ports'
 import {
   assignDevicesValidator,
+  assignDriversValidator,
   assignVehiclesValidator,
   createGroupValidator,
   listGroupsValidator,
@@ -37,13 +38,10 @@ export interface GroupControllerConfig {
   model: LucidModel
   /** `vehicle_group` | `device_group` — type de ressource dans l'audit. */
   resourceType: string
-  /** `vehicle` | `device` — type de ressource des membres dans l'audit. */
-  /*
-  Ajouter driver plus tard au groupe
-  */
+  /** `vehicle` | `device` | `driver` — type de ressource des membres dans l'audit. */
   memberResourceType: string
   /** Clé JSON de la liste des membres dans le corps de requête. */
-  memberPayloadKey: 'vehicleIds' | 'deviceIds'
+  memberPayloadKey: 'vehicleIds' | 'deviceIds' | 'driverIds'
   read: Permission
   write: Permission
   libelle: string
@@ -376,14 +374,17 @@ export abstract class GroupControllerBase {
   }
 
   /*
-  Fonction primitive gérant la résolution de la liste des membres 
-  d'une organisation ou de devices 
-  NB : ajouter driver .
+  Fonction primitive gérant la résolution de la liste des membres
+  d'un groupe : véhicules, boîtiers ou conducteurs.
   */
   private async lireMembres(ctx: HttpContext): Promise<string[]> {
     if (this.cfg.memberPayloadKey === 'vehicleIds') {
       const payload = await ctx.request.validateUsing(assignVehiclesValidator)
       return payload.vehicleIds
+    }
+    if (this.cfg.memberPayloadKey === 'driverIds') {
+      const payload = await ctx.request.validateUsing(assignDriversValidator)
+      return payload.driverIds
     }
     const payload = await ctx.request.validateUsing(assignDevicesValidator)
     return payload.deviceIds

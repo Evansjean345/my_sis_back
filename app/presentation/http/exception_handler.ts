@@ -21,6 +21,21 @@ const UNIQUE_ACCOUNT_IDENTIFIERS: Record<string, { code: string; message: string
     code: 'E_PHONE_TAKEN',
     message: 'Ce numéro de téléphone est déjà associé à un compte',
   },
+  // Même traitement pour les autres identifiants métier uniques par organisation
+  // (migrations 005 et 018) : la course entre deux requêtes produit le même code
+  // que la pré-vérification du contrôleur.
+  uq_usage_schedules_org_name: {
+    code: 'E_SCHEDULE_NAME_TAKEN',
+    message: 'Un calendrier portant ce nom existe déjà dans cette organisation',
+  },
+  uq_drivers_org_license: {
+    code: 'E_DRIVER_LICENSE_TAKEN',
+    message: 'Ce numéro de permis est déjà attribué à un conducteur de cette organisation',
+  },
+  uq_drivers_org_employee_code: {
+    code: 'E_DRIVER_EMPLOYEE_CODE_TAKEN',
+    message: 'Ce matricule est déjà attribué à un conducteur de cette organisation',
+  },
 }
 
 /**

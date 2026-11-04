@@ -39,9 +39,19 @@ import { CreateOrganization } from '#application/identity/use_cases/create_organ
 import { CreateOrganizationUser } from '#application/identity/use_cases/create_organization_user'
 import {
   LucidDeviceGroupMembership,
+  LucidDriverGroupMembership,
   LucidVehicleGroupMembership,
 } from '#infrastructure/persistence/repositories/group_membership_repository'
 import { LucidAuditLogReader } from '#infrastructure/persistence/readers/audit_log_reader'
+import { CancelEngineCommand } from '#application/security/use_cases/cancel_engine_command'
+import { EnforceUsageSchedules } from '#application/scheduling/use_cases/enforce_usage_schedules'
+import { UseCaseEngineCommandIssuer } from '#application/scheduling/engine_command_issuer'
+import { LucidUsageScheduleRepository } from '#infrastructure/persistence/repositories/usage_schedule_repository'
+import {
+  LucidEnforcementReader,
+  LucidEnforcementStateStore,
+} from '#infrastructure/persistence/readers/schedule_enforcement_reader'
+import logger from '@adonisjs/core/services/logger'
 
 /**
  * =========================================================================
@@ -179,6 +189,18 @@ export default class ContainerProvider {
       )
     })
 
+    this.app.container.singleton(CancelEngineCommand, () => {
+      return new CancelEngineCommand(
+        new LucidUnitOfWork(),
+        new LucidDeviceCommandRepository(),
+        new SystemClock(),
+        new LucidAuditLogger()
+      )
+    })
+
+    // ------------------------------------------------------------- immobilisation planifiée
+    this.registerScheduling()
+
     // ------------------------------------------------------------- identité
     this.registerIdentity()
 
@@ -190,8 +212,54 @@ export default class ContainerProvider {
       () => new LucidVehicleGroupMembership()
     )
     this.app.container.singleton(LucidDeviceGroupMembership, () => new LucidDeviceGroupMembership())
+    this.app.container.singleton(LucidDriverGroupMembership, () => new LucidDriverGroupMembership())
     this.app.container.singleton(LucidAuditLogger, () => new LucidAuditLogger())
     this.app.container.singleton(LucidAuditLogReader, () => new LucidAuditLogReader())
+  }
+
+  /**
+   * Immobilisation planifiée — calendriers d'utilisation appliqués au moteur.
+   *
+   * Le moteur n'a AUCUN accès direct à la passerelle : il émet par
+   * `UseCaseEngineCommandIssuer`, c'est-à-dire par les cas d'usage de
+   * l'opérateur, avec tous leurs garde-fous (CM-07, CM-09, relais,
+   * IMMOBILIZATION_ENABLED). Le suivi flespi (`FlespiCommandTracker`) sert de
+   * réconciliateur avant chaque passage.
+   */
+  private registerScheduling() {
+    const planif = sisbmConfig.schedules
+
+    this.app.container.singleton(
+      LucidUsageScheduleRepository,
+      () => new LucidUsageScheduleRepository()
+    )
+    this.app.container.singleton(LucidEnforcementReader, () => new LucidEnforcementReader())
+
+    this.app.container.singleton(EnforceUsageSchedules, async (resolver) => {
+      const issuer = new UseCaseEngineCommandIssuer(
+        await resolver.make(RequestImmobilization),
+        await resolver.make(RequestEngineRestore),
+        await resolver.make(DispatchEngineCommand),
+        await resolver.make(CancelEngineCommand)
+      )
+      return new EnforceUsageSchedules(
+        await resolver.make(LucidEnforcementReader),
+        new LucidEnforcementStateStore(),
+        issuer,
+        await resolver.make(FlespiCommandTracker),
+        new SystemClock(),
+        new LucidAuditLogger(),
+        {
+          retryIntervalSeconds: planif.retryIntervalSeconds,
+          backoffSeconds: planif.backoffSeconds,
+        },
+        (err, vehicleId) =>
+          logger.error(
+            { err, vehicleId },
+            '[schedules] erreur pendant l’application d’un calendrier'
+          )
+      )
+    })
   }
 
   /**

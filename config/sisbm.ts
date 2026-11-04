@@ -64,6 +64,23 @@ const sisbmConfig = {
   },
 
   /**
+   * Immobilisation planifiée — moteur `node ace sisbm:schedules:enforce`.
+   *
+   * Le moteur passe par les cas d'usage d'immobilisation : `immobilization.enabled`
+   * reste l'interrupteur général. `enabled` ci-dessous ne coupe QUE le moteur
+   * planifié (les coupures manuelles restent possibles).
+   */
+  schedules: {
+    enabled: env.get('SCHEDULE_ENFORCEMENT_ENABLED', true),
+    /** Période d'un passage en mode `--watch`. */
+    intervalSeconds: env.get('SCHEDULE_ENFORCE_INTERVAL_SECONDS', 60),
+    /** Nouvelle tentative après un refus passager (véhicule en mouvement, pas de position…). */
+    retryIntervalSeconds: env.get('SCHEDULE_ENFORCE_RETRY_SECONDS', 60),
+    /** Nouvelle tentative après un refus durable ou un échec d'émission. */
+    backoffSeconds: env.get('SCHEDULE_ENFORCE_BACKOFF_SECONDS', 900),
+  },
+
+  /**
    * Passerelle télématique flespi.
    *
    * `deviceType` accepte l'id numérique, le `name` ou le `title` flespi

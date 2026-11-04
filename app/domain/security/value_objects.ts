@@ -145,7 +145,13 @@ export const COMMAND_STATUSES = [
 export type CommandStatus = (typeof COMMAND_STATUSES)[number] //indexation
 
 //origin des commandes
-export const COMMAND_ORIGINS = ['manual', 'policy', 'api'] as const
+/*
+Origine des commandes - alignée sur `ck_device_commands_origin` (migration 017).
+`schedule` : émise par le moteur d'immobilisation planifiée
+(`node ace sisbm:schedules:enforce`). C'est elle qui autorise le moteur à
+rétablir un véhicule : il ne libère jamais ce qu'un humain a coupé.
+*/
+export const COMMAND_ORIGINS = ['manual', 'policy', 'api', 'schedule'] as const
 export type CommandOrigin = (typeof COMMAND_ORIGINS)[number]
 
 /**

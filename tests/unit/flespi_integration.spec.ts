@@ -5,9 +5,10 @@ import { FlespiDeviceGateway } from '#infrastructure/gateways/flespi/flespi_devi
 import { FlespiProtocolGateway } from '#infrastructure/gateways/flespi/flespi_protocol_gateway'
 import {
   HttpFlespiCommandGateway,
-  buildBusinessCommand,
   checkAgainstCatalog,
 } from '#infrastructure/gateways/flespi/flespi_command_gateway'
+// Déplacée dans `code_legacy/` lors de la centralisation des commandes boîtier.
+import { buildBusinessCommand } from '#infrastructure/gateways/flespi/code_legacy/tracker_command'
 import {
   buildFlespiIdent,
   checkIdentAgainstSchema,

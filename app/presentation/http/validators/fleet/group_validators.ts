@@ -52,3 +52,10 @@ export const assignDevicesValidator = vine.compile(
     //.maxLength(MAX_MEMBRES).distinct(),
   })
 )
+
+/** Conducteurs d'un groupe (migration 018) : même forme que les deux familles précédentes. */
+export const assignDriversValidator = vine.compile(
+  vine.object({
+    driverIds: vine.array(vine.string().uuid()).minLength(1),
+  })
+)

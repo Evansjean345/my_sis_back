@@ -18,6 +18,7 @@ import {
   Reason,
   Speed,
   VehicleId,
+  type CommandOrigin,
 } from '#domain/security/value_objects'
 import { CommandAlreadyInFlightError, DeviceNotEquippedError } from '#domain/security/errors'
 
@@ -25,7 +26,7 @@ export interface RequestEngineRestoreInput {
   context: ExecutionContext
   vehicleId: string
   reason: string
-  origin?: 'manual' | 'policy' | 'api'
+  origin?: CommandOrigin
 }
 
 export interface RequestEngineRestoreOutput {

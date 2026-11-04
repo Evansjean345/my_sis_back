@@ -28,6 +28,8 @@ export type Permission =
   | 'viewAuditLogs'
   | 'viewOrganizations'
   | 'manageOrganizations'
+  | 'viewSchedules'
+  | 'manageSchedules'
 
 /**
  * Matrice des rôles système : migration 016 (super_admin `*`, admin
@@ -58,6 +60,15 @@ const PERMISSION_MAP: Record<Permission, string> = {
   // ne crée d'autres organisations.
   viewOrganizations: 'organization:read',
   manageOrganizations: 'organization:write',
+  /** Consulter les calendriers d'utilisation et l'état du moteur : quiconque voit la flotte. */
+  viewSchedules: 'vehicle:read',
+  /**
+   * Créer, modifier et rattacher un calendrier, c'est programmer des coupures
+   * moteur AUTOMATIQUES : plus engageant qu'une coupure ponctuelle. Couvert par
+   * `policy:*` (admin) et `*` (super_admin) ; l'opérateur, qui peut couper un
+   * moteur à la main, ne programme pas de coupures. Aucune migration de rôle.
+   */
+  manageSchedules: 'policy:write',
 }
 
 /** Cache par instance d'utilisateur, donc par requête. */

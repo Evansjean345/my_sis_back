@@ -17,6 +17,16 @@ export const SecurityAndImmobilizationRoutes = () => {
 
       /** Rétablissement du moteur : demande et émission en un appel. */
       router.post('/restorations', [ImmobilizationController, 'restore'])
+
+      /**
+       * Immobilisation contrôlée d'un GROUPE : coupure / rétablissement
+       * immédiats de chaque véhicule, garde-fous unitaires conservés.
+       */
+      router.post('/vehicle-groups/:id/immobilizations', [
+        ImmobilizationController,
+        'storeForGroup',
+      ])
+      router.post('/vehicle-groups/:id/restorations', [ImmobilizationController, 'restoreForGroup'])
     })
     .prefix('/security')
     .where('id', router.matchers.uuid())

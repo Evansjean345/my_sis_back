@@ -12,6 +12,9 @@ import { vehicleRoutes } from '#start/routes/client/vehicles'
 import { vehicleGroupRoutes } from '#start/routes/client/vehicle_group'
 import { getUtilsRoutes } from '#start/routes/client/utils'
 import { SecurityAndImmobilizationRoutes } from '#start/routes/client/security_immobilizations'
+import { usageScheduleRoutes } from '#start/routes/client/usage_schedules'
+import { driverRoutes } from '#start/routes/client/drivers'
+import { driverGroupRoutes } from '#start/routes/client/driver_group'
 
 export const clientRoutes = () => {
   router
@@ -28,6 +31,9 @@ export const clientRoutes = () => {
       vehicleRoutes()
       getUtilsRoutes()
       SecurityAndImmobilizationRoutes()
+      usageScheduleRoutes()
+      driverRoutes()
+      driverGroupRoutes()
     })
     .use(middleware.auth())
 }

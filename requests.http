@@ -636,3 +636,156 @@ Authorization: Bearer {{superToken}}
 ### CONTRÔLE — un administrateur client ne voit pas les organisations → 403
 GET {{api}}/organizations
 Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ IMMOBILISATION PLANIFIÉE (migration 017)
+### Doc : docs/08-immobilisation-planifiee-et-conducteurs.md
+### Jours : 0 = dimanche … 6 = samedi. Une plage qui passe minuit = deux fenêtres.
+### Écriture : policy:write (admin). Lecture : vehicle:read.
+
+# @name createVehicleGroup
+POST {{api}}/vehicle-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Livraison de nuit" }
+
+###
+@vehicleGroupId = {{createVehicleGroup.response.body.data.id}}
+
+###
+POST {{api}}/vehicle-groups/{{vehicleGroupId}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleIds": ["{{vehicleId}}"] }
+
+# @name createSchedule
+POST {{api}}/usage-schedules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Heures de service",
+  "timezone": "Africa/Abidjan",
+  "windows": [
+    { "dayOfWeek": 1, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 2, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 3, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 4, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 5, "startTime": "06:00", "endTime": "20:00" }
+  ]
+}
+
+###
+@scheduleId = {{createSchedule.response.body.data.id}}
+
+### remplacer toute la semaine (ex. : ajout du samedi matin)
+PUT {{api}}/usage-schedules/{{scheduleId}}/windows
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "windows": [
+    { "dayOfWeek": 1, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 6, "startTime": "07:00", "endTime": "12:00" }
+  ]
+}
+
+### rattacher des véhicules (mode allowed par défaut)
+POST {{api}}/usage-schedules/{{scheduleId}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleIds": ["{{vehicleId}}"], "mode": "allowed" }
+
+### rattacher un GROUPE de véhicules : tous ses membres, présents et futurs
+POST {{api}}/usage-schedules/{{scheduleId}}/vehicle-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleGroupIds": ["{{vehicleGroupId}}"], "mode": "allowed" }
+
+### SIMULATION : que ferait le moteur ce soir à 22 h 30 ?
+GET {{api}}/usage-schedules/{{scheduleId}}/preview?at=2026-11-03T22:30:00Z
+Authorization: Bearer {{token}}
+
+### état planifié d'un véhicule (calendriers, origine, verdict, mémoire du moteur)
+GET {{api}}/vehicles/{{vehicleId}}/schedule-status
+Authorization: Bearer {{token}}
+
+### calendriers appliqués à un groupe
+GET {{api}}/vehicle-groups/{{vehicleGroupId}}/schedules
+Authorization: Bearer {{token}}
+
+### ═════════════════════════════ IMMOBILISATION CONTRÔLÉE D'UN GROUPE (immédiate)
+### Chaque véhicule suit le chemin unitaire (CM-07 par véhicule). 100 véhicules max.
+POST {{api}}/security/vehicle-groups/{{vehicleGroupId}}/immobilizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Inventaire du parc livraison" }
+
+###
+POST {{api}}/security/vehicle-groups/{{vehicleGroupId}}/restorations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Fin de l'inventaire" }
+
+### ═════════════════════════════ CONDUCTEURS (migration 018)
+
+# @name createDriver
+POST {{api}}/drivers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "firstName": "Koffi",
+  "lastName": "Yao",
+  "phone": "+2250700000001",
+  "employeeCode": "TR-001",
+  "licenseNumber": "CI-123456",
+  "licenseCategories": ["B", "C"],
+  "licenseExpiresOn": "2029-05-31",
+  "vehicleId": "{{vehicleId}}"
+}
+
+###
+@driverId = {{createDriver.response.body.data.id}}
+
+### changer de véhicule (null = détacher)
+PUT {{api}}/drivers/{{driverId}}/vehicle
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleId": null }
+
+### conducteurs d'un véhicule
+GET {{api}}/vehicles/{{vehicleId}}/drivers
+Authorization: Bearer {{token}}
+
+### recherche : nom, matricule ou permis ; filtres statut / véhicule / groupe
+GET {{api}}/drivers?search=yao&status=active
+Authorization: Bearer {{token}}
+
+# @name createDriverGroup
+POST {{api}}/driver-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Équipe de nuit", "color": "#1f4e79" }
+
+###
+@driverGroupId = {{createDriverGroup.response.body.data.id}}
+
+###
+POST {{api}}/driver-groups/{{driverGroupId}}/drivers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "driverIds": ["{{driverId}}"] }
+
+###
+GET {{api}}/drivers?driverGroupId={{driverGroupId}}
+Authorization: Bearer {{token}}

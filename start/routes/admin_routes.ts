@@ -9,6 +9,8 @@ import { adminUtilRoutes } from '#start/routes/admin/admin_utils'
 import { adminVehicleGroupRoutes } from '#start/routes/admin/admin_vehicle_group'
 import { adminDeviceGroupRoutes } from '#start/routes/admin/admin_device_group'
 import { adminVehicleRoutes } from '#start/routes/admin/admin_vehicle'
+import { adminUsageScheduleRoutes } from '#start/routes/admin/admin_usage_schedules'
+import { adminDriverRoutes } from '#start/routes/admin/admin_drivers'
 
 export const adminRoutes = () => {
   router
@@ -21,6 +23,8 @@ export const adminRoutes = () => {
       adminOrgRoutes()
       adminUsersRoutes()
       adminUtilRoutes()
+      adminUsageScheduleRoutes()
+      adminDriverRoutes()
     })
     .prefix('/admin')
     .as('admin')
