@@ -44,8 +44,8 @@ export const SmsTemplates = {
   accountCreated(p: { brand: string; fullName: string; email: string; locale?: string | null }) {
     const body =
       locale(p.locale) === 'en'
-        ? `${p.brand}: hello ${court(p.fullName)}, your account has been created. Login: ${p.email} Welcome! on the SISBM platform.`
-        : `${p.brand} : bonjour ${court(p.fullName)}, votre compte a été créé. Identifiant : ${p.email} Bienvenue ! sur la plateforme SISBM.`
+        ? `hello ${court(p.fullName)}, your account has been created. Welcome to the SISBM CORE platform!`
+        : `bonjour ${court(p.fullName)}, votre compte a ete cree. Bienvenue sur la plateforme SISBM CORE!`
     return { templateCode: 'identity.account_created', body, journalBody: body }
   },
 
@@ -55,8 +55,8 @@ export const SmsTemplates = {
   accountSuspended(p: { brand: string; email: string; locale?: string | null }) {
     const body =
       locale(p.locale) === 'en'
-        ? `${p.brand}: your account ${p.email} has been suspended. Please contact your administrator.`
-        : `${p.brand} : votre compte ${p.email} a été suspendu. Contactez votre administrateur pour plus d'informations.`
+        ? `your account ${p.email} has been suspended. Please contact your administrator.`
+        : `votre compte ${p.email} a été suspendu. Contactez votre administrateur pour plus d'informations.`
     return { templateCode: 'identity.account_suspended', body, journalBody: body }
   },
 
@@ -71,8 +71,8 @@ export const SmsTemplates = {
   }): RenderedSms {
     const texte = (code: string) =>
       locale(p.locale) === 'en'
-        ? `${p.brand}: your password reset code is ${code}. Valid for ${p.ttlMinutes} min. Never share it.`
-        : `${p.brand} : votre code de réinitialisation est ${code}. Valable ${p.ttlMinutes} min. Ne le communiquez à personne.`
+        ? ` your password reset code is ${code}. Valid for ${p.ttlMinutes} min. Never share it.`
+        : ` votre code de reinitialisation est ${code}. Valable ${p.ttlMinutes} min. Ne le communiquez a personne.`
     return {
       templateCode: 'identity.password_reset_code',
       body: texte(p.code),
@@ -86,8 +86,8 @@ export const SmsTemplates = {
   passwordChanged(p: { brand: string; locale?: string | null }): RenderedSms {
     const body =
       locale(p.locale) === 'en'
-        ? `${p.brand}: the password of your account has just been changed. If this was not you, contact your administrator immediately.`
-        : `${p.brand} : le mot de passe de votre compte a été modifié. Si ce n'est pas vous, contactez immédiatement votre administrateur.`
+        ? `the password of your account has just been changed. If this was not you, contact your administrator immediately.`
+        : `le mot de passe de votre compte a ete modifie. Si ce n'est pas vous, contactez immediatement votre administrateur.`
     return { templateCode: 'identity.password_changed', body, journalBody: body }
   },
 } as const

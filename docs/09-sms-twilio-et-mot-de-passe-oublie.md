@@ -9,7 +9,7 @@ Trois fonctionnalités sur un socle commun :
 | Mot de passe oublié par code SMS     | `POST /auth/password/forgot`                 | direct (l'utilisateur attend) |
 | SMS « mot de passe modifié » (alerte) | événement `identity.user.password_reset`    | outbox → `sisbm:outbox:dispatch` |
 
-Migration **020** (`create_otps_table`).
+Migration **021** (`create_otps_table`).
 
 ---
 
@@ -167,7 +167,7 @@ Un SMS de 160 caractères GSM-7 = 1 crédit ; un seul caractère hors alphabet G
 ## 4. Exploitation
 
 ```bash
-node ace migration:run                       # migration 020 (+ régénère database/sql/schema/otps.ts)
+node ace migration:run                       # migration 021 (+ régénère database/sql/schema/otps.ts)
 node ace sisbm:outbox:dispatch --watch       # NOUVEAU processus (pm2 / systemd), à côté de sisbm:ingest
 ```
 

@@ -5,7 +5,7 @@ import type { NewOtp, OtpRecord, OtpRepository } from '#application/identity/por
 import type { OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
 
 /**
- * Adaptateur de la table `otps` (migration 020). Traduction pure : la
+ * Adaptateur de la table `otps` (migration 021). Traduction pure : la
  * politique (expiration, plafond, délai de renvoi) vit dans
  * `domain/identity/otp_policy.ts`.
  */

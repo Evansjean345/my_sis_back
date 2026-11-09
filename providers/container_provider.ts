@@ -48,6 +48,7 @@ import { EnforceUsageSchedules } from '#application/scheduling/use_cases/enforce
 import { UseCaseEngineCommandIssuer } from '#application/scheduling/engine_command_issuer'
 import { LucidUsageScheduleRepository } from '#infrastructure/persistence/repositories/usage_schedule_repository'
 import {
+  LucidEnforcementEventLog,
   LucidEnforcementReader,
   LucidEnforcementStateStore,
 } from '#infrastructure/persistence/readers/schedule_enforcement_reader'
@@ -276,11 +277,14 @@ export default class ContainerProvider {
         await resolver.make(FlespiCommandTracker),
         new SystemClock(),
         new LucidAuditLogger(),
+        // Journal d'exécution (migration create_schedule_enforcement_events) :
+        // 7e paramètre du constructeur, AVANT les réglages.
+        new LucidEnforcementEventLog(),
         {
           retryIntervalSeconds: planif.retryIntervalSeconds,
           backoffSeconds: planif.backoffSeconds,
         },
-        (err: any, vehicleId: any) =>
+        (err, vehicleId) =>
           logger.error(
             { err, vehicleId },
             '[schedules] erreur pendant l’application d’un calendrier'

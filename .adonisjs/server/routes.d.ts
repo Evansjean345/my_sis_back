@@ -8,6 +8,9 @@ export type ScannedRoutes = {
     'subscribe': { paramsTuple?: []; params?: {} }
     'unsubscribe': { paramsTuple?: []; params?: {} }
     'auth.login': { paramsTuple?: []; params?: {} }
+    'auth.forgot_password': { paramsTuple?: []; params?: {} }
+    'auth.verify_reset_code': { paramsTuple?: []; params?: {} }
+    'auth.reset_password': { paramsTuple?: []; params?: {} }
     'auth.me': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
     'audit_log.index': { paramsTuple?: []; params?: {} }
@@ -245,6 +248,8 @@ export type ScannedRoutes = {
     'admin.driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.sms.balance': { paramsTuple?: []; params?: {} }
+    'admin.sms.top_up': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -258,6 +263,7 @@ export type ScannedRoutes = {
     'flespi_channel.messages': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.connections': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.idents': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'twilio_webhook.sms_status': { paramsTuple?: []; params?: {} }
   }
   GET: {
     'event_stream': { paramsTuple?: []; params?: {} }
@@ -371,6 +377,7 @@ export type ScannedRoutes = {
     'admin.driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.sms.balance': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -494,6 +501,7 @@ export type ScannedRoutes = {
     'admin.driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.sms.balance': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -509,6 +517,9 @@ export type ScannedRoutes = {
     'subscribe': { paramsTuple?: []; params?: {} }
     'unsubscribe': { paramsTuple?: []; params?: {} }
     'auth.login': { paramsTuple?: []; params?: {} }
+    'auth.forgot_password': { paramsTuple?: []; params?: {} }
+    'auth.verify_reset_code': { paramsTuple?: []; params?: {} }
+    'auth.reset_password': { paramsTuple?: []; params?: {} }
     'auth.logout': { paramsTuple?: []; params?: {} }
     'command.sync': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'command.arm': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -580,7 +591,9 @@ export type ScannedRoutes = {
     'admin.driver.attach_groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.sms.top_up': { paramsTuple?: []; params?: {} }
     'flespi_channel.store': { paramsTuple?: []; params?: {} }
+    'twilio_webhook.sms_status': { paramsTuple?: []; params?: {} }
   }
   DELETE: {
     'command.cancel': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'commandId': ParamValue} }
