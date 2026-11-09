@@ -149,6 +149,131 @@ export interface EnforcementStateStore {
   save(state: EnforcementState): Promise<void>
 }
 
+// ---------------------------------------------------------------------------
+// Journal d'exécution (`schedule_enforcement_events`) et analyses
+// ---------------------------------------------------------------------------
+
+export type EnforcementEventKind =
+  | 'transition'
+  | 'dispatched'
+  | 'refused'
+  | 'completed'
+  | 'overridden'
+  | 'manual_cut_kept'
+  | 'already_immobilized'
+
+/** Un événement significatif du moteur, rattaché au calendrier décisif. */
+export interface EnforcementEvent {
+  organizationId: string
+  vehicleId: string
+  scheduleId: string | null
+  /** Flotte par laquelle le calendrier s'applique (null : rattachement direct). */
+  vehicleGroupId: string | null
+  kind: EnforcementEventKind
+  desired: DesiredUsage | null
+  action: EnforcementAction | null
+  commandId: string | null
+  errorCode: string | null
+  /** Début de l'action (entrée en plage) : sur `completed`, donne le délai réel d'exécution. */
+  pendingSince: Date | null
+  occurredAt: Date
+}
+
+/** Écriture du journal — par le seul moteur, jamais en simulation. */
+export interface EnforcementEventLog {
+  record(events: EnforcementEvent[]): Promise<void>
+}
+
+export interface CommandTally {
+  requested: number
+  acknowledged: number
+  failed: number
+  expired: number
+  cancelled: number
+  inFlight: number
+}
+
+export interface LatencyStats {
+  /** Secondes. */
+  median: number | null
+  p90: number | null
+  samples: number
+}
+
+export interface ScheduleAnalyticsQuery {
+  /** Vide : toutes les organisations (exploitant). */
+  organizationIds: string[]
+  /** Dates civiles incluses, lues dans `timezone`. */
+  from: string
+  to: string
+  timezone: string
+}
+
+export interface ScheduleAnalyticsDay {
+  date: string
+  cut: CommandTally
+  restore: CommandTally
+  refusals: number
+  refusedVehicles: number
+  overrides: number
+  manualCutsKept: number
+  transitionsToImmobilized: number
+  transitionsToFree: number
+  completed: number
+  /** Par heure locale (24 cases) : commandes demandées et tentatives refusées. */
+  hours: { cut: number[]; restore: number[]; refused: number[] }
+}
+
+export interface ScheduleAnalytics {
+  range: { from: string; to: string; timezone: string; startsAt: string; endsAt: string }
+  totals: {
+    cut: CommandTally
+    restore: CommandTally
+    refusals: number
+    refusedVehicles: number
+    overrides: number
+    manualCutsKept: number
+    alreadyImmobilized: number
+    transitionsToImmobilized: number
+    transitionsToFree: number
+    vehicles: number
+    /** Commande demandée → acquittement du boîtier. */
+    commandLatency: { cut: LatencyStats; restore: LatencyStats }
+    /** Entrée / sortie de plage → objectif confirmé : ce que vit l'exploitant. */
+    executionDelay: { cut: LatencyStats; restore: LatencyStats }
+  }
+  refusalsByCode: Array<{ code: string; count: number; vehicles: number }>
+  days: ScheduleAnalyticsDay[]
+  vehicles: Array<{
+    id: string
+    registration: string | null
+    organizationId: string
+    cuts: number
+    restores: number
+    failures: number
+    refusals: number
+    overrides: number
+  }>
+  schedules: Array<{
+    id: string
+    name: string
+    organizationId: string
+    transitionsToImmobilized: number
+    dispatched: number
+    acknowledged: number
+    refusals: number
+    overrides: number
+    completed: number
+    medianExecutionSeconds: number | null
+  }>
+  /** Premier événement journalisé : avant, refus et dérogations ne sont pas connus. */
+  journalSince: string | null
+}
+
+export interface ScheduleAnalyticsReader {
+  analyze(query: ScheduleAnalyticsQuery): Promise<ScheduleAnalytics>
+}
+
 /**
  * Réconciliation des commandes en vol avec la passerelle (flespi).
  * Sans elle, une coupure `sent` acquittée par le boîtier resterait `sent`

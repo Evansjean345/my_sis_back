@@ -7,6 +7,7 @@ import RoleModel from '#infrastructure/persistence/models/role_model'
 import { missingPermissions } from '#domain/identity/role_policy'
 import { CreateOrganizationUser } from '#application/identity/use_cases/create_organization_user'
 import { RoleAssignment } from '#application/identity/services/role_assignment'
+import { SuspendUserAccount } from '#application/identity/use_cases/suspend_user_account'
 import {
   createUserValidator,
   updateUserValidator,
@@ -49,7 +50,8 @@ import {
 export default class UserController {
   constructor(
     private readonly createOrganizationUser: CreateOrganizationUser,
-    private readonly roleAssignment: RoleAssignment
+    private readonly roleAssignment: RoleAssignment,
+    private readonly suspendUserAccount: SuspendUserAccount
   ) {}
 
   /**
@@ -414,25 +416,23 @@ export default class UserController {
     return ctx.response.ok({ data: utilisateur.serialize() })
   }
 
+  /**
+   * Suspension : cas d'usage `SuspendUserAccount` (statut + révocation des
+   * sessions + événement `identity.user.suspended` en une transaction).
+   * L'événement déclenche le SMS d'information par l'outbox. Réponse
+   * inchangée : le compte sérialisé, ou 409 E_SELF_SUSPEND.
+   */
   private async suspendre(ctx: HttpContext, scope: TenantScope) {
     const utilisateur = await this.trouver(ctx, scope)
     if (!utilisateur) return this.introuvable(ctx)
-    if (utilisateur.id === toExecutionContext(ctx).actorId) {
-      return ctx.response.conflict({
-        error: {
-          code: 'E_SELF_SUSPEND',
-          message: 'Un utilisateur ne peut pas suspendre son propre compte',
-          details: {},
-        },
-      })
-    }
 
-    utilisateur.status = 'suspended'
-    await utilisateur.save()
-    // Suspendre sans révoquer les jetons laisserait le compte actif jusqu'à
-    // leur expiration — sept jours.
-    await UserModel.revokeAllTokens(utilisateur.id)
+    const r = await this.suspendUserAccount.execute({
+      context: toExecutionContext(ctx),
+      userId: utilisateur.id,
+    })
+    if (!r.ok) return ctx.response.status(r.error.httpStatus).send({ error: r.error.toJSON() })
 
+    await utilisateur.refresh()
     return ctx.response.ok({ data: utilisateur.serialize() })
   }
 

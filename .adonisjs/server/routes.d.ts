@@ -107,6 +107,7 @@ export type ScannedRoutes = {
     'immobilization.restore_for_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.index': { paramsTuple?: []; params?: {} }
     'usage_schedule.store': { paramsTuple?: []; params?: {} }
+    'usage_schedule.analytics': { paramsTuple?: []; params?: {} }
     'usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -212,6 +213,7 @@ export type ScannedRoutes = {
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.index_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.store_all': { paramsTuple?: []; params?: {} }
+    'admin.usage_schedule.analytics_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -303,6 +305,7 @@ export type ScannedRoutes = {
     'organization.daily_activity': { paramsTuple?: []; params?: {} }
     'organization.overview': { paramsTuple?: []; params?: {} }
     'usage_schedule.index': { paramsTuple?: []; params?: {} }
+    'usage_schedule.analytics': { paramsTuple?: []; params?: {} }
     'usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -356,6 +359,7 @@ export type ScannedRoutes = {
     'admin.audit_log.index': { paramsTuple?: []; params?: {} }
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.index_all': { paramsTuple?: []; params?: {} }
+    'admin.usage_schedule.analytics_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -424,6 +428,7 @@ export type ScannedRoutes = {
     'organization.daily_activity': { paramsTuple?: []; params?: {} }
     'organization.overview': { paramsTuple?: []; params?: {} }
     'usage_schedule.index': { paramsTuple?: []; params?: {} }
+    'usage_schedule.analytics': { paramsTuple?: []; params?: {} }
     'usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -477,6 +482,7 @@ export type ScannedRoutes = {
     'admin.audit_log.index': { paramsTuple?: []; params?: {} }
     'admin.audit_log.actions': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.index_all': { paramsTuple?: []; params?: {} }
+    'admin.usage_schedule.analytics_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }

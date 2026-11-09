@@ -25,3 +25,28 @@ export class UserAccountCreated extends BaseDomainEvent {
     super('identity.user.created', userId, payload)
   }
 }
+
+/**
+ * 3 - Compte suspendu. Déclenche le SMS d'information (handler outbox
+ * `identity_notifications`) : jamais pour une suspension qui n'a pas été
+ * validée par le COMMIT.
+ */
+export class UserAccountSuspended extends BaseDomainEvent {
+  constructor(
+    userId: string,
+    payload: { organizationId: string; previousStatus: string; suspendedBy: string | null }
+  ) {
+    super('identity.user.suspended', userId, payload)
+  }
+}
+
+/**
+ * 4 - Mot de passe réinitialisé par OTP. Le SMS d'alerte qui en découle est
+ * une mesure de sécurité : si quelqu'un d'autre a pris la main sur le numéro,
+ * le titulaire est prévenu par le canal qu'il consulte.
+ */
+export class UserPasswordReset extends BaseDomainEvent {
+  constructor(userId: string, payload: { organizationId: string; method: 'otp_sms' }) {
+    super('identity.user.password_reset', userId, payload)
+  }
+}

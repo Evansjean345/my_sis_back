@@ -109,3 +109,36 @@ export interface AuditLogger {
 export interface PermissionReader {
   readPermissions(roleId: string): Promise<string[]>
 }
+
+// ---------------------------------------------------------------------------
+// Outbox — consommation des événements de domaine
+// ---------------------------------------------------------------------------
+
+/** Message de `outbox_messages`, tel que le dispatcher le remet à un handler. */
+export interface OutboxMessage {
+  readonly id: string
+  readonly topic: string
+  readonly aggregateId: string | null
+  readonly payload: Record<string, unknown>
+  /** Tentatives déjà faites, celle-ci comprise. */
+  readonly attempts: number
+}
+
+/**
+ * `done`  : traité (ou volontairement ignoré) — le message est publié.
+ * `retry` : échec passager — le message est remis en file avec un délai.
+ * Une exception levée par le handler vaut `retry`.
+ */
+export type OutboxHandlingResult = { status: 'done' } | { status: 'retry'; reason: string }
+
+/**
+ * Consommateur d'événements. Un handler doit être IDEMPOTENT : la livraison
+ * est « au moins une fois » (un worker peut tomber entre l'envoi et
+ * l'acquittement). Les handlers SMS s'appuient pour cela sur
+ * `notifications.dedup_key`.
+ */
+export interface OutboxHandler {
+  readonly name: string
+  readonly topics: readonly string[]
+  handle(message: OutboxMessage): Promise<OutboxHandlingResult>
+}

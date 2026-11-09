@@ -10,10 +10,14 @@ import VehicleGroupModel from '#infrastructure/persistence/models/vehicle_group_
 import OrganizationModel from '#infrastructure/persistence/models/organization_model'
 import { LucidUsageScheduleRepository } from '#infrastructure/persistence/repositories/usage_schedule_repository'
 import { LucidEnforcementReader } from '#infrastructure/persistence/readers/schedule_enforcement_reader'
+import { LucidScheduleAnalyticsReader } from '#infrastructure/persistence/readers/schedule_analytics_reader'
+import { InvalidAnalyticsRangeError } from '#domain/scheduling/errors'
 import { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
 import { EnforceUsageSchedules } from '#application/scheduling/use_cases/enforce_usage_schedules'
 import {
   adminListUsageSchedulesValidator,
+  adminScheduleAnalyticsValidator,
+  scheduleAnalyticsValidator,
   attachScheduleGroupsValidator,
   attachScheduleVehiclesValidator,
   createUsageScheduleValidator,
@@ -30,6 +34,9 @@ import { authorizePlatform, organizationsOf } from '#presentation/http/support/p
 import { notFoundInScope, vehicleInScope } from '#presentation/http/support/tenant_resources'
 
 const DEFAULT_TIMEZONE = 'Africa/Abidjan'
+
+/** Au-delà, une analyse se découpe (et l'agrégation reste rapide). */
+const ANALYTICS_MAX_DAYS = 93
 
 /**
  * =========================================================================
@@ -58,8 +65,54 @@ export default class UsageScheduleController {
     private readonly schedules: LucidUsageScheduleRepository,
     private readonly reader: LucidEnforcementReader,
     private readonly audit: LucidAuditLogger,
-    private readonly enforcer: EnforceUsageSchedules
+    private readonly enforcer: EnforceUsageSchedules,
+    private readonly analyticsReader: LucidScheduleAnalyticsReader
   ) {}
+
+  /**
+   * GET /usage-schedules/analytics ?from=AAAA-MM-JJ&to=AAAA-MM-JJ&timezone=
+   *
+   * Historique RÉEL de l'immobilisation planifiée dans l'organisation :
+   * commandes émises et leur issue, refus avant émission (motif), dérogations,
+   * délais d'exécution — par jour, par heure, par calendrier, par véhicule.
+   */
+  async analytics(ctx: HttpContext) {
+    await authorize(ctx, 'viewSchedules')
+    const scope = await organizationScope(ctx, ctx.params.organizationId)
+    const f = await ctx.request.validateUsing(scheduleAnalyticsValidator)
+    return this.analyser(ctx, [scope.organizationId], f)
+  }
+
+  /** GET /admin/usage-schedules/analytics ?organizationId= (facultatif : toutes) */
+  async analyticsAll(ctx: HttpContext) {
+    await authorizePlatform(ctx)
+    const f = await ctx.request.validateUsing(adminScheduleAnalyticsValidator)
+    return this.analyser(ctx, f.organizationId ? [f.organizationId] : [], f)
+  }
+
+  private async analyser(
+    ctx: HttpContext,
+    organizationIds: string[],
+    f: { from: string; to: string; timezone?: string }
+  ) {
+    const fuseau = assertTimeZone(f.timezone ?? DEFAULT_TIMEZONE)
+    if (!fuseau.ok) return this.echec(ctx, fuseau.error)
+
+    const debut = DateTime.fromISO(f.from, { zone: fuseau.value })
+    const fin = DateTime.fromISO(f.to, { zone: fuseau.value })
+    const jours = fin.diff(debut, 'days').days + 1
+    if (!debut.isValid || !fin.isValid || jours < 1 || jours > ANALYTICS_MAX_DAYS) {
+      return this.echec(ctx, new InvalidAnalyticsRangeError(f.from, f.to, ANALYTICS_MAX_DAYS))
+    }
+
+    const data = await this.analyticsReader.analyze({
+      organizationIds,
+      from: f.from,
+      to: f.to,
+      timezone: fuseau.value,
+    })
+    return ctx.response.ok({ data })
+  }
 
   /** GET /usage-schedules ?search=&isActive=&page=&perPage= */
   async index(ctx: HttpContext) {

@@ -39,6 +39,30 @@ export const throttle = {
       .every('1 minute')
       .usingKey(`device_commands_${ctx.auth?.user?.id ?? ctx.request.ip()}`)
   }),
+  /**
+   * Demande de code SMS — chaque appel peut COÛTER un SMS. Le quota par
+   * compte (5 codes / heure, `OTP_MAX_PER_HOUR`) ne suffit pas : une
+   * campagne sur de nombreux numéros viderait le solde. D'où ce plafond par
+   * adresse IP, indépendant du compteur de connexion.
+   */
+  otpRequest: limiter.define('otpRequest', (ctx: HttpContext) => {
+    return limiter
+      .allowRequests(5)
+      .every('15 minutes')
+      .usingKey(`otp_request_${ctx.request.ip()}`)
+      .blockFor('30 minutes')
+  }),
+  /**
+   * Saisie du code. Le plafond par code (5 tentatives) est la vraie
+   * barrière ; celle-ci freine la même IP qui essaierait plusieurs comptes.
+   */
+  otpVerify: limiter.define('otpVerify', (ctx: HttpContext) => {
+    return limiter
+      .allowRequests(10)
+      .every('15 minutes')
+      .usingKey(`otp_verify_${ctx.request.ip()}`)
+      .blockFor('15 minutes')
+  }),
   auth: limiter.define('auth', (ctx: HttpContext) => {
     return limiter
       .allowRequests(5)

@@ -349,6 +349,7 @@ export default class VehicleController {
   /*
   Fonction utilitaire pour archiver un véhicule / status = archived
   */
+  /*
   private async archiver(ctx: HttpContext, scope: TenantScope) {
     const vehicule = await this.trouver(ctx, scope)
     if (!vehicule) return this.introuvable(ctx, 'Véhicule')
@@ -356,6 +357,17 @@ export default class VehicleController {
     vehicule.deletedAt = DateTime.now()
     vehicule.status = 'archived'
     await vehicule.save()
+    return ctx.response.noContent()
+  }*/
+
+  /*
+  Nouvelle fonction utilitaire pour supprimer un véhicule / status = archived
+  */
+  private async archiver(ctx: HttpContext, scope: TenantScope) {
+    const vehicule = await this.trouver(ctx, scope)
+    if (!vehicule) return this.introuvable(ctx, 'Véhicule')
+
+    await vehicule.delete()
     return ctx.response.noContent()
   }
 

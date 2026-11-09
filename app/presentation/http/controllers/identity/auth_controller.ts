@@ -1,10 +1,20 @@
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import UserModel from '#infrastructure/persistence/models/user_model'
 import RoleModel from '#infrastructure/persistence/models/role_model'
 import OrganizationModel from '#infrastructure/persistence/models/organization_model'
 import { isPlatformOperator } from '#domain/identity/role_policy'
-import { loginValidator } from '#presentation/http/validators/identity/auth_validators'
+import { unwrap } from '#domain/kernel'
+import {
+  forgotPasswordValidator,
+  loginValidator,
+  resetPasswordValidator,
+  verifyResetCodeValidator,
+} from '#presentation/http/validators/identity/auth_validators'
+import { RequestPasswordReset } from '#application/identity/use_cases/request_password_reset'
+import { VerifyPasswordResetCode } from '#application/identity/use_cases/verify_password_reset_code'
+import { ResetPassword } from '#application/identity/use_cases/reset_password'
 
 /**
  * Authentification.
@@ -12,8 +22,20 @@ import { loginValidator } from '#presentation/http/validators/identity/auth_vali
  * Le contexte Identity suit le style PRAGMATIQUE : contrôleur → Lucid, sans
  * agrégat ni cas d'usage. Il n'y a ici aucune règle métier complexe à protéger,
  * et l'abstraction n'apporterait que du bruit (cf. docs/03 §3).
+ *
+ * Exception : le mot de passe oublié passe par trois cas d'usage
+ * (`/auth/password/*`). Il porte de vraies règles de sécurité — politique
+ * OTP, tentatives sous verrou, non-divulgation — qui doivent se tester sans
+ * base, comme la tranche `security`.
  */
+@inject()
 export default class AuthController {
+  constructor(
+    private readonly requestPasswordReset: RequestPasswordReset,
+    private readonly verifyPasswordResetCode: VerifyPasswordResetCode,
+    private readonly resetPasswordUseCase: ResetPassword
+  ) {}
+
   /** POST /api/v1/auth/login */
   async login({ request, response }: HttpContext) {
     //methode de login ajouter numéro de téléphone et rendre télephone unique dans user model
@@ -127,8 +149,70 @@ export default class AuthController {
     await UserModel.accessTokens.delete(user, auth.user!.currentAccessToken.identifier)
     return response.noContent()
   }
-}
 
-/*
-Ajouter une fonction avec otp pour retrouver changer son mot de passe
-*/
+  // =========================================================================
+  //  MOT DE PASSE OUBLIÉ — OTP par SMS (Twilio)
+  // =========================================================================
+
+  /**
+   * POST /api/v1/auth/password/forgot — body : { phone }
+   *
+   * Toujours 202, avec le même corps : la réponse ne dit jamais si le numéro
+   * correspond à un compte. Le front affiche « si un compte existe, un code
+   * vient d'être envoyé » et propose le renvoi après `resendAfterSeconds`.
+   */
+  async forgotPassword({ request, response }: HttpContext) {
+    const { phone } = await request.validateUsing(forgotPasswordValidator)
+    // Le cas d'usage ne renvoie jamais d'erreur métier (non-divulgation).
+    const delais = unwrap(
+      await this.requestPasswordReset.execute({
+        phone,
+        ip: request.ip(),
+        userAgent: request.header('user-agent') ?? null,
+        requestId: request.id(),
+      })
+    )
+    return response.accepted({
+      data: {
+        message:
+          'Si un compte actif correspond à ce numéro, un code vient de lui être envoyé par SMS.',
+        ...delais,
+      },
+    })
+  }
+
+  /**
+   * POST /api/v1/auth/password/verify — body : { phone, code }
+   *
+   * Vérifie le code SANS le consommer (écran suivant : nouveau mot de passe).
+   * Chaque échec est décompté : 422 E_OTP_INVALID { remainingAttempts },
+   * 422 E_OTP_EXPIRED, 429 E_OTP_ATTEMPTS_EXCEEDED.
+   */
+  async verifyResetCode({ request, response }: HttpContext) {
+    const payload = await request.validateUsing(verifyResetCodeValidator)
+    const r = await this.verifyPasswordResetCode.execute(payload)
+    if (!r.ok) return response.status(r.error.httpStatus).send({ error: r.error.toJSON() })
+    return response.ok({ data: { valid: true, expiresAt: r.value.expiresAt.toISOString() } })
+  }
+
+  /**
+   * POST /api/v1/auth/password/reset
+   * body : { phone, code, password, password_confirmation }
+   *
+   * 204 : mot de passe changé, verrouillage levé, TOUTES les sessions
+   * révoquées — l'utilisateur se reconnecte par `/auth/login`.
+   */
+  async resetPassword({ request, response }: HttpContext) {
+    const payload = await request.validateUsing(resetPasswordValidator)
+    const r = await this.resetPasswordUseCase.execute({
+      phone: payload.phone,
+      code: payload.code,
+      newPassword: payload.password,
+      ip: request.ip(),
+      userAgent: request.header('user-agent') ?? null,
+      requestId: request.id(),
+    })
+    if (!r.ok) return response.status(r.error.httpStatus).send({ error: r.error.toJSON() })
+    return response.noContent()
+  }
+}

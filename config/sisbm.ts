@@ -151,6 +151,64 @@ const sisbmConfig = {
     maxInflightQueue: env.get('MQTT_MAX_INFLIGHT', 1000),
   },
 
+  /**
+   * SMS — service d'envoi unique (OTP, comptes, alertes à venir).
+   *
+   * `provider` : `twilio` en recette et en production ; `log` en
+   * développement (le SMS est écrit dans la console, rien n'est envoyé —
+   * interdit en production).
+   * `enforceBalance` : chaque SMS débite `sms_balance` (crédits de la
+   * plateforme) ; solde insuffisant = SMS refusé. Recharger par
+   * `POST /api/v1/admin/sms/topup`.
+   */
+  sms: {
+    provider: env.get('SMS_PROVIDER', 'log') as 'twilio' | 'log',
+    brand: env.get('SMS_BRAND', 'SISBM CORE'),
+    enforceBalance: env.get('SMS_ENFORCE_BALANCE', true),
+    /** Indicatif ajouté à un numéro national saisi sans « + » (0161899990 → +2250161899990). */
+    defaultDialCode: env.get('SMS_DEFAULT_DIAL_CODE', '225'),
+  },
+
+  /**
+   * Twilio Programmable Messaging.
+   *
+   * Authentification par CLÉ D'API (`SK…` + secret) de préférence : révocable
+   * seule, sans toucher à l'Auth Token du compte. L'Auth Token reste requis
+   * pour VÉRIFIER la signature des webhooks (`X-Twilio-Signature`).
+   */
+  twilio: {
+    accountSid: env.get('TWILIO_ACCOUNT_SID', ''),
+    apiKeySid: env.get('TWILIO_API_KEY_SID', ''),
+    apiKeySecret: env.get('TWILIO_API_KEY_SECRET', ''),
+    authToken: env.get('TWILIO_AUTH_TOKEN', ''),
+    baseUrl: env.get('TWILIO_BASE_URL', 'https://api.twilio.com'),
+    timeoutMs: env.get('TWILIO_TIMEOUT_MS', 10000),
+    /** Sender ID alphanumérique PRÉ-ENREGISTRÉ (Côte d'Ivoire), ou numéro E.164. */
+    from: env.get('TWILIO_FROM', 'SISBM'),
+    /** Prioritaire sur `from` s'il est renseigné. */
+    messagingServiceSid: env.get('TWILIO_MESSAGING_SERVICE_SID', ''),
+    /** URL PUBLIQUE exacte du webhook d'accusés de remise ; vide = pas d'accusés. */
+    statusCallbackUrl: env.get('TWILIO_STATUS_CALLBACK_URL', ''),
+  },
+
+  /** Codes à usage unique — cf. domain/identity/otp_policy.ts. */
+  otp: {
+    length: env.get('OTP_LENGTH', 6),
+    ttlSeconds: env.get('OTP_TTL_SECONDS', 600),
+    maxAttempts: env.get('OTP_MAX_ATTEMPTS', 5),
+    resendCooldownSeconds: env.get('OTP_RESEND_COOLDOWN_SECONDS', 60),
+    maxPerHour: env.get('OTP_MAX_PER_HOUR', 5),
+  },
+
+  /** Consommation de l'outbox — `node ace sisbm:outbox:dispatch --watch`. */
+  outbox: {
+    pollIntervalMs: env.get('OUTBOX_POLL_INTERVAL_MS', 2000),
+    batchSize: env.get('OUTBOX_BATCH_SIZE', 50),
+    maxAttempts: env.get('OUTBOX_MAX_ATTEMPTS', 8),
+    retryBaseSeconds: env.get('OUTBOX_RETRY_BASE_SECONDS', 30),
+    staleLockSeconds: env.get('OUTBOX_STALE_LOCK_SECONDS', 300),
+  },
+
   /** Rétention — à confirmer avec le responsable conformité (ARTCI). */
   retention: {
     positionsMonths: env.get('RETENTION_POSITIONS_MONTHS', 24), //à definir sur 6mois

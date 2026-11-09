@@ -2,6 +2,7 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import OrganizationModel from '#infrastructure/persistence/models/organization_model'
 import RoleModel from '#infrastructure/persistence/models/role_model'
 import UserModel from '#infrastructure/persistence/models/user_model'
+import db from '@adonisjs/lucid/services/db'
 import type { TransactionScope } from '#application/ports'
 import type {
   OrganizationData,
@@ -11,6 +12,10 @@ import type {
   UserAccountData,
   UserAccountRecord,
   UserAccountRepository,
+  UserAccountWriter,
+  UserContact,
+  UserContactReader,
+  UserStatus,
 } from '#application/identity/ports'
 import type { AssignableRole } from '#domain/identity/role_policy'
 
@@ -80,7 +85,9 @@ function toOrganizationRecord(row: OrganizationModel): OrganizationRecord {
 // Comptes utilisateurs
 // ---------------------------------------------------------------------------
 
-export class LucidUserAccountRepository implements UserAccountRepository {
+export class LucidUserAccountRepository
+  implements UserAccountRepository, UserContactReader, UserAccountWriter
+{
   async emailExists(email: string, tx?: TransactionScope): Promise<boolean> {
     // `email` est en citext : la comparaison est déjà insensible à la casse.
     const row = await UserModel.query({ client: trx(tx) })
@@ -110,6 +117,65 @@ export class LucidUserAccountRepository implements UserAccountRepository {
       timezone: row.timezone,
       createdAt: row.createdAt.toJSDate(),
     }
+  }
+
+  // ---------------------------------------------------------------- coordonnées
+
+  async findContactById(userId: string, tx?: TransactionScope): Promise<UserContact | null> {
+    const row = await UserModel.query({ client: trx(tx) })
+      .where('id', userId)
+      .whereNull('deleted_at')
+      .first()
+    return row ? toUserContact(row) : null
+  }
+
+  async findActiveByPhone(phone: string, tx?: TransactionScope): Promise<UserContact | null> {
+    const row = await UserModel.query({ client: trx(tx) })
+      .where('phone', phone)
+      .where('status', 'active')
+      .whereNull('deleted_at')
+      .first()
+    return row ? toUserContact(row) : null
+  }
+
+  // ---------------------------------------------------------------- cycle de vie
+
+  async setStatus(userId: string, status: UserStatus, tx?: TransactionScope): Promise<void> {
+    await UserModel.query({ client: trx(tx) })
+      .where('id', userId)
+      .update({ status })
+  }
+
+  async updatePassword(
+    userId: string,
+    passwordHash: string,
+    changedAt: Date,
+    tx?: TransactionScope
+  ): Promise<void> {
+    await UserModel.query({ client: trx(tx) })
+      .where('id', userId)
+      .update({
+        password_hash: passwordHash,
+        password_changed_at: changedAt,
+        failed_attempts: 0,
+        locked_until: null,
+      })
+  }
+
+  async revokeAllTokens(userId: string, tx?: TransactionScope): Promise<void> {
+    await (trx(tx) ?? db).from('auth_access_tokens').where('tokenable_id', userId).delete()
+  }
+}
+
+function toUserContact(row: UserModel): UserContact {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    email: row.email,
+    fullName: row.fullName,
+    phone: row.phone,
+    status: row.status,
+    locale: row.locale,
   }
 }
 

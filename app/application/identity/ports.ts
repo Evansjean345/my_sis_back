@@ -1,5 +1,6 @@
 import type { TransactionScope } from '#application/ports'
 import type { AssignableRole } from '#domain/identity/role_policy'
+import type { OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
 
 /**
  * =========================================================================
@@ -100,4 +101,114 @@ export interface RoleCatalog {
  */
 export interface PasswordHasher {
   make(plain: string): Promise<string>
+}
+
+// ---------------------------------------------------------------------------
+// Coordonnées et cycle de vie d'un compte (notifications, OTP, suspension)
+// ---------------------------------------------------------------------------
+/** Ce qu'il faut pour joindre un titulaire de compte — jamais l'empreinte du mot de passe. */
+export interface UserContact {
+  id: string
+  organizationId: string
+  email: string
+  fullName: string
+  phone: string | null
+  status: UserStatus
+  locale: string
+}
+
+export interface UserContactReader {
+  /** Compte NON supprimé, quel que soit son statut. */
+  findContactById(userId: string, tx?: TransactionScope): Promise<UserContact | null>
+  /**
+   * Compte ACTIF (statut `active`, non supprimé) portant ce numéro E.164.
+   * L'index unique `uq_users_phone` garantit qu'il y en a au plus un.
+   */
+  findActiveByPhone(phone: string, tx?: TransactionScope): Promise<UserContact | null>
+}
+
+export interface UserAccountWriter {
+  setStatus(userId: string, status: UserStatus, tx?: TransactionScope): Promise<void>
+  /** Nouveau mot de passe + levée du verrouillage (compteur d'échecs, `locked_until`). */
+  updatePassword(
+    userId: string,
+    passwordHash: string,
+    changedAt: Date,
+    tx?: TransactionScope
+  ): Promise<void>
+  /** Révoque toutes les sessions (jetons d'accès) du compte. */
+  revokeAllTokens(userId: string, tx?: TransactionScope): Promise<void>
+}
+
+// ---------------------------------------------------------------------------
+// OTP
+// ---------------------------------------------------------------------------
+
+export interface OtpRecord {
+  id: string
+  userId: string
+  purpose: OtpPurpose
+  recipient: string
+  codeHash: string
+  attempts: number
+  maxAttempts: number
+  expiresAt: Date
+  consumedAt: Date | null
+  invalidatedAt: Date | null
+  createdAt: Date
+}
+
+export interface NewOtp {
+  id: string
+  userId: string
+  purpose: OtpPurpose
+  channel: 'sms'
+  recipient: string
+  codeHash: string
+  maxAttempts: number
+  expiresAt: Date
+  createdAt: Date
+  requestedIp: string | null
+  userAgent: string | null
+}
+
+export interface OtpRepository {
+  issuanceStats(
+    userId: string,
+    purpose: OtpPurpose,
+    since: Date,
+    tx?: TransactionScope
+  ): Promise<OtpIssuanceStats>
+  /** Invalide le code actif éventuel (un seul par compte et par usage). */
+  invalidateActive(
+    userId: string,
+    purpose: OtpPurpose,
+    at: Date,
+    tx?: TransactionScope
+  ): Promise<void>
+  /** `false` : un code actif existe déjà (demande concurrente) — rien n'est écrit. */
+  insert(otp: NewOtp, tx?: TransactionScope): Promise<boolean>
+  /** Code actif, verrouillé (FOR UPDATE) jusqu'à la fin de la transaction. */
+  findActiveForUpdate(
+    userId: string,
+    purpose: OtpPurpose,
+    tx: TransactionScope
+  ): Promise<OtpRecord | null>
+  /** +1 tentative ; `invalidateAt` renseigné = le plafond est atteint. */
+  registerFailedAttempt(id: string, invalidateAt: Date | null, tx: TransactionScope): Promise<void>
+  consume(id: string, at: Date, tx: TransactionScope): Promise<void>
+  invalidate(id: string, at: Date, tx?: TransactionScope): Promise<void>
+  attachNotification(id: string, notificationId: string): Promise<void>
+}
+
+/**
+ * Génération et empreinte des codes. Port dédié : le cas d'usage ignore
+ * l'algorithme (HMAC-SHA256 avec la clé applicative) et un test peut fournir
+ * un code déterministe.
+ */
+export interface OtpCodeService {
+  generate(length: number): string
+  digest(code: string): string
+  /** Comparaison à temps constant. */
+  matches(code: string, digest: string): boolean
 }

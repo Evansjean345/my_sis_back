@@ -111,6 +111,35 @@ export default await Env.create(new URL('../', import.meta.url), {
   SMTP_PASSWORD: Env.schema.string.optional(),
   SMTP_FROM: Env.schema.string.optional(),
 
+  // ---------------------------------------------------------- sms (twilio)
+  SMS_PROVIDER: Env.schema.enum.optional(['twilio', 'log'] as const),
+  SMS_BRAND: Env.schema.string.optional(),
+  SMS_ENFORCE_BALANCE: Env.schema.boolean.optional(),
+  SMS_DEFAULT_DIAL_CODE: Env.schema.string.optional(),
+  TWILIO_ACCOUNT_SID: Env.schema.string.optional(),
+  TWILIO_API_KEY_SID: Env.schema.string.optional(),
+  TWILIO_API_KEY_SECRET: Env.schema.string.optional(),
+  TWILIO_AUTH_TOKEN: Env.schema.string.optional(),
+  TWILIO_BASE_URL: Env.schema.string.optional(),
+  TWILIO_TIMEOUT_MS: Env.schema.number.optional(),
+  TWILIO_FROM: Env.schema.string.optional(),
+  TWILIO_MESSAGING_SERVICE_SID: Env.schema.string.optional(),
+  TWILIO_STATUS_CALLBACK_URL: Env.schema.string.optional(),
+
+  // ---------------------------------------------------------- otp
+  OTP_LENGTH: Env.schema.number.optional(),
+  OTP_TTL_SECONDS: Env.schema.number.optional(),
+  OTP_MAX_ATTEMPTS: Env.schema.number.optional(),
+  OTP_RESEND_COOLDOWN_SECONDS: Env.schema.number.optional(),
+  OTP_MAX_PER_HOUR: Env.schema.number.optional(),
+
+  // ---------------------------------------------------------- outbox
+  OUTBOX_POLL_INTERVAL_MS: Env.schema.number.optional(),
+  OUTBOX_BATCH_SIZE: Env.schema.number.optional(),
+  OUTBOX_MAX_ATTEMPTS: Env.schema.number.optional(),
+  OUTBOX_RETRY_BASE_SECONDS: Env.schema.number.optional(),
+  OUTBOX_STALE_LOCK_SECONDS: Env.schema.number.optional(),
+
   // ---------------------------------------------------------- rétention
   RETENTION_POSITIONS_MONTHS: Env.schema.number.optional(),
   RETENTION_INGEST_MESSAGES_MONTHS: Env.schema.number.optional(),

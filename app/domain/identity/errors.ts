@@ -86,3 +86,69 @@ export class RoleEscalationError extends DomainError {
     )
   }
 }
+
+/*
+<-------------------------------------------------------------------------------------------------------------------------------------------------------------------------->
+Tentative de réinitialisation de mot de passe par OTP --- GESTION des erreurs
+<-------------------------------------------------------------------------------------------------------------------------------------------------------------------------->
+*/
+
+// ---------------------------------------------------------------------------
+// Réinitialisation du mot de passe par OTP
+// ---------------------------------------------------------------------------
+
+/**
+ * Code faux, inconnu, ou compte introuvable : MÊME réponse. Distinguer « ce
+ * numéro n'a pas de compte » de « code faux » ferait du point d'entrée public
+ * un annuaire des numéros enregistrés.
+ */
+//7 - code OTP invalide
+export class InvalidOtpError extends DomainError {
+  readonly code = 'E_OTP_INVALID'
+  readonly httpStatus = 422
+
+  constructor(remainingAttempts?: number) {
+    super('Code invalide', remainingAttempts === undefined ? {} : { remainingAttempts })
+  }
+}
+
+//8 - code OTP expiré
+export class OtpExpiredError extends DomainError {
+  readonly code = 'E_OTP_EXPIRED'
+  readonly httpStatus = 422
+
+  constructor() {
+    super('Code expiré : demandez un nouveau code')
+  }
+}
+
+/** Plafond de tentatives atteint : le code est invalidé, il faut en redemander un. */
+//9 - trop de tentatives sur un code
+export class OtpAttemptsExceededError extends DomainError {
+  readonly code = 'E_OTP_ATTEMPTS_EXCEEDED'
+  readonly httpStatus = 429
+
+  constructor() {
+    super('Trop de tentatives : demandez un nouveau code')
+  }
+}
+
+//10 - suspension de son propre compte
+export class SelfSuspendError extends DomainError {
+  readonly code = 'E_SELF_SUSPEND'
+  readonly httpStatus = 409
+
+  constructor() {
+    super('Un utilisateur ne peut pas suspendre son propre compte')
+  }
+}
+
+//11 - compte introuvable (périmètre de l'acteur)
+export class UserAccountNotFoundError extends DomainError {
+  readonly code = 'E_NOT_FOUND'
+  readonly httpStatus = 404
+
+  constructor(userId: string) {
+    super('Utilisateur introuvable', { userId })
+  }
+}

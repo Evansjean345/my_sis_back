@@ -3,8 +3,8 @@
 **Extension du Jalon 3** — application automatique des calendriers d'utilisation au moteur,
 immobilisation contrôlée d'un groupe de véhicules, conducteurs et groupes de conducteurs.
 
-Migrations **017** (`create_schedule_enforcement_tables`), **018** (`create_drivers_tables`) et
-**019** (`make_driver_organization_optional`).
+Migrations **017** (`create_schedule_enforcement_tables`), **018** (`create_drivers_tables`),
+**019** (`make_driver_organization_optional`) et **020** (`create_schedule_enforcement_events`).
 
 ---
 
@@ -100,7 +100,27 @@ attente (`pending_action`, `pending_since`, `next_attempt_at`, `attempts`), dern
 Les transitions, dérogations et coupures manuelles conservées sont tracées dans `audit_logs`
 (`scheduling.enforcement.<issue>`, ressource `vehicle`) : « pourquoi ce moteur a-t-il été coupé à 22 h ? ».
 
-### 1.7 Retrait d'un calendrier
+### 1.7 Journal d'exécution : `schedule_enforcement_events` (migration 020)
+
+`vehicle_schedule_states` ne garde que le **dernier** état ; `device_commands` ne voit que les
+commandes émises. Un refus **avant** émission (CM-07, pas de position, commande en vol) n'y laisse
+aucune trace. Le moteur journalise donc chaque événement significatif, rattaché au calendrier
+décisif et, le cas échéant, à la flotte par laquelle il s'applique :
+
+| `kind`                | Quand                                      | Champs utiles                |
+| --------------------- | ------------------------------------------ | ---------------------------- |
+| `transition`          | entrée / sortie de plage                   | `desired_state`              |
+| `dispatched`          | commande émise (échec passerelle compris)  | `action`, `command_id`       |
+| `refused`             | tentative refusée, **une ligne par essai** | `action`, `error_code`       |
+| `completed`           | objectif confirmé par le boîtier           | `pending_since` → délai réel |
+| `overridden`          | un opérateur a repris la main              | `action`                     |
+| `manual_cut_kept`     | fin de plage, coupure manuelle conservée   |                              |
+| `already_immobilized` | début de plage, moteur déjà coupé          |                              |
+
+Écriture « au mieux » (comme l'audit) : un journal indisponible n'empêche jamais une coupure.
+Jamais en simulation (`--dry-run`, `preview`).
+
+### 1.8 Retrait d'un calendrier
 
 Suppression logique ou détachement : au passage suivant, les véhicules que le moteur avait
 immobilisés et qui ne relèvent plus d'aucun calendrier sont **rétablis** (`cause = no_schedule`).
@@ -136,6 +156,31 @@ Admin (`*`) : `GET/POST /api/v1/admin/usage-schedules` (filtre `organizationId`,
 Rattachement : réponse `{ applied, updated, unchanged, rejected }`. Un identifiant d'une autre
 organisation ressort en `rejected`, comme un identifiant inconnu ; si rien n'est exploitable →
 `422 E_TARGETS_OUT_OF_SCOPE`.
+
+### 2.1 Analyses de l'historique réel
+
+| Route                                         | Habilitation     |
+| --------------------------------------------- | ---------------- |
+| `GET /api/v1/usage-schedules/analytics`       | `vehicle:read`   |
+| `GET /api/v1/admin/usage-schedules/analytics` | exploitant (`*`) |
+
+Paramètres : `from`, `to` (dates civiles **incluses**, `AAAA-MM-JJ`, 93 jours au plus —
+`E_INVALID_ANALYTICS_RANGE`), `timezone` (IANA, défaut `Africa/Abidjan`) ; côté admin,
+`organizationId` facultatif (toutes les organisations sinon). Tout est agrégé en SQL et ventilé
+par jour et par heure **dans le fuseau demandé**.
+
+Réponse `data` :
+
+- `totals` — commandes coupure / rétablissement (`requested`, `acknowledged`, `failed`,
+  `expired`, `cancelled`, `inFlight`), refus et véhicules refusés, dérogations, coupures manuelles
+  conservées, transitions, `commandLatency` (demande → acquittement) et `executionDelay` (entrée en
+  plage → objectif confirmé), en secondes (médiane, p90, échantillons) ;
+- `days[]` — mêmes compteurs par jour (tous les jours de la période, même vides) et
+  `hours.{cut,restore,refused}[24]` ;
+- `refusalsByCode[]`, `vehicles[]` (10 véhicules à surveiller : échecs + refus),
+  `schedules[]` (transitions, émises, confirmées, refus, dérogations, délai médian) ;
+- `journalSince` — premier événement journalisé : avant cette date (déploiement de la 020), seuls
+  les comptes de commandes sont connus.
 
 ## 3. Immobilisation contrôlée d'un groupe — commande immédiate
 
@@ -248,6 +293,7 @@ c'est l'historique « qui conduisait ce véhicule à telle date ».
 | `E_DRIVER_LICENSE_TAKEN`              | 409  | permis déjà attribué dans l'organisation               |
 | `E_DRIVER_EMPLOYEE_CODE_TAKEN`        | 409  | matricule déjà attribué                                |
 | `E_VEHICLE_OUT_OF_SCOPE`              | 422  | véhicule inconnu ou d'une autre organisation           |
+| `E_INVALID_ANALYTICS_RANGE`           | 422  | période d'analyse inversée ou de plus de 93 jours      |
 
 ## 6. Configuration
 
@@ -262,7 +308,7 @@ SCHEDULE_ENFORCE_BACKOFF_SECONDS=900
 
 ## 7. Mise en production
 
-1. `node ace migration:run` (017, 018, 019) ;
+1. `node ace migration:run` (017, 018, 019, 020) ;
 2. créer les calendriers, **vérifier avec `preview`** et `--dry-run` avant de rattacher ;
 3. lancer le moteur sous superviseur (PM2 / systemd), **une seule instance** :
    `node ace sisbm:schedules:enforce --watch` ;

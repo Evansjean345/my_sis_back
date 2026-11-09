@@ -46,3 +46,20 @@ export class InvalidTimezoneError extends DomainError {
     })
   }
 }
+
+/** Période d'analyse invalide : début après la fin, ou plus de `maxDays` jours. */
+export class InvalidAnalyticsRangeError extends DomainError {
+  readonly code = 'E_INVALID_ANALYTICS_RANGE'
+  readonly httpStatus = 422
+
+  constructor(from: string, to: string, maxDays: number) {
+    super(
+      `Période d'analyse invalide (${from} → ${to}) : début avant fin, ${maxDays} jours au plus`,
+      {
+        from,
+        to,
+        maxDays,
+      }
+    )
+  }
+}

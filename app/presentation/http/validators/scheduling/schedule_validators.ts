@@ -99,6 +99,29 @@ export const previewScheduleValidator = vine.compile(
   })
 )
 
+/**
+ * Analyses de l'historique réel : dates civiles incluses (AAAA-MM-JJ), lues
+ * dans `timezone` (défaut Africa/Abidjan). La cohérence de la période est
+ * vérifiée par le contrôleur (E_INVALID_ANALYTICS_RANGE).
+ */
+const analyticsFields = {
+  from: vine
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: vine
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezone: vine.string().trim().maxLength(64).optional(),
+}
+
+export const scheduleAnalyticsValidator = vine.compile(vine.object(analyticsFields))
+
+export const adminScheduleAnalyticsValidator = vine.compile(
+  vine.object({ ...analyticsFields, organizationId: vine.string().uuid().optional() })
+)
+
 /** Coupure / rétablissement de TOUT un groupe : motif obligatoire (CM-08). */
 export const groupEngineCommandValidator = vine.compile(
   vine.object({

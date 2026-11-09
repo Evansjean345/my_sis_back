@@ -5,6 +5,8 @@ import type {
   EnforcementState,
   EnforcementStateStore,
   EnforcementTarget,
+  EnforcementEvent,
+  EnforcementEventLog,
 } from '#application/scheduling/ports'
 import type { ScheduleAssignment, UsageCause } from '#domain/scheduling/usage_policy'
 import { WeeklyWindow, type ScheduleMode } from '#domain/scheduling/value_objects'
@@ -242,5 +244,28 @@ export class LucidEnforcementStateStore implements EnforcementStateStore {
       })
       .onConflict('vehicle_id')
       .merge()
+  }
+}
+
+/** Journal d'exécution : une insertion groupée par véhicule et par passage, jamais de mise à jour. */
+export class LucidEnforcementEventLog implements EnforcementEventLog {
+  async record(events: EnforcementEvent[]): Promise<void> {
+    if (events.length === 0) return
+    const iso = (d: Date | null) => (d ? DateTime.fromJSDate(d).toISO() : null)
+    await db.table('schedule_enforcement_events').multiInsert(
+      events.map((e) => ({
+        organization_id: e.organizationId,
+        vehicle_id: e.vehicleId,
+        usage_schedule_id: e.scheduleId,
+        vehicle_group_id: e.vehicleGroupId,
+        kind: e.kind,
+        desired_state: e.desired,
+        action: e.action,
+        command_id: e.commandId,
+        error_code: e.errorCode,
+        pending_since: iso(e.pendingSince),
+        occurred_at: iso(e.occurredAt),
+      }))
+    )
   }
 }

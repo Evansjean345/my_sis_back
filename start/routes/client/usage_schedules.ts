@@ -14,6 +14,7 @@ export const usageScheduleRoutes = () => {
     .group(() => {
       router.get('/', [UsageScheduleController, 'index'])
       router.post('/', [UsageScheduleController, 'store'])
+      router.get('/analytics', [UsageScheduleController, 'analytics'])
       router.get('/:id', [UsageScheduleController, 'show'])
       router.patch('/:id', [UsageScheduleController, 'update'])
       router.delete('/:id', [UsageScheduleController, 'destroy'])

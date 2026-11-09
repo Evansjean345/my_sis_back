@@ -52,6 +52,27 @@ import {
   LucidEnforcementStateStore,
 } from '#infrastructure/persistence/readers/schedule_enforcement_reader'
 import logger from '@adonisjs/core/services/logger'
+import env from '#start/env'
+import { SuspendUserAccount } from '#application/identity/use_cases/suspend_user_account'
+import { RequestPasswordReset } from '#application/identity/use_cases/request_password_reset'
+import { VerifyPasswordResetCode } from '#application/identity/use_cases/verify_password_reset_code'
+import { ResetPassword } from '#application/identity/use_cases/reset_password'
+import { OtpVerifier } from '#application/identity/services/otp_verifier'
+import { SmsSender } from '#application/notification/services/sms_sender'
+import { IdentitySmsNotifications } from '#application/notification/handlers/identity_sms_notifications'
+import type { SmsGateway } from '#application/notification/ports'
+import { LucidOtpRepository } from '#infrastructure/persistence/repositories/otp_repository'
+import {
+  LucidNotificationJournal,
+  LucidSmsBalanceLedger,
+} from '#infrastructure/persistence/repositories/notification_repositories'
+import { HmacOtpCodeService } from '#infrastructure/services/otp_code_service'
+import { TwilioClient } from '#infrastructure/gateways/twilio/twilio_client'
+import { TwilioSmsGateway } from '#infrastructure/gateways/twilio/twilio_sms_gateway'
+import { TwilioAccountGateway } from '#infrastructure/gateways/twilio/twilio_account_gateway'
+import { LogSmsGateway } from '#infrastructure/gateways/sms/log_sms_gateway'
+import { OutboxDispatcher } from '#infrastructure/messaging/outbox_dispatcher'
+import { hostname } from 'node:os'
 
 /**
  * =========================================================================
@@ -201,8 +222,14 @@ export default class ContainerProvider {
     // ------------------------------------------------------------- immobilisation planifiée
     this.registerScheduling()
 
+    // ------------------------------------------------------------- notification (SMS)
+    this.registerNotification()
+
     // ------------------------------------------------------------- identité
     this.registerIdentity()
+
+    // ------------------------------------------------------------- outbox
+    this.registerOutbox()
 
     // ------------------------------------------------------------- groupes et audit
     // Adaptateurs sans état : un singleton suffit, et le conteneur peut les
@@ -253,11 +280,89 @@ export default class ContainerProvider {
           retryIntervalSeconds: planif.retryIntervalSeconds,
           backoffSeconds: planif.backoffSeconds,
         },
-        (err, vehicleId) =>
+        (err: any, vehicleId: any) =>
           logger.error(
             { err, vehicleId },
             '[schedules] erreur pendant l’application d’un calendrier'
           )
+      )
+    })
+  }
+
+  /**
+   * Notification — SMS (Twilio).
+   *
+   * UN SEUL `SmsSender` pour toute la plateforme : il tient le solde global
+   * et le journal. La passerelle est choisie par `SMS_PROVIDER` : `twilio`,
+   * ou `log` en développement (aucun envoi, SMS dans la console).
+   */
+  private registerNotification() {
+    const tw = sisbmConfig.twilio
+    const sms = sisbmConfig.sms
+
+    this.app.container.singleton(
+      TwilioClient,
+      () =>
+        new TwilioClient({
+          accountSid: tw.accountSid,
+          apiKeySid: tw.apiKeySid,
+          apiKeySecret: tw.apiKeySecret,
+          authToken: tw.authToken,
+          baseUrl: tw.baseUrl,
+          timeoutMs: tw.timeoutMs,
+        })
+    )
+    this.app.container.singleton(TwilioAccountGateway, async (resolver) => {
+      return new TwilioAccountGateway(await resolver.make(TwilioClient))
+    })
+    this.app.container.singleton(LucidSmsBalanceLedger, () => new LucidSmsBalanceLedger())
+    this.app.container.singleton(LucidNotificationJournal, () => new LucidNotificationJournal())
+
+    this.app.container.singleton(SmsSender, async (resolver) => {
+      const gateway: SmsGateway =
+        sms.provider === 'twilio'
+          ? new TwilioSmsGateway(await resolver.make(TwilioClient), {
+              from: tw.from,
+              messagingServiceSid: tw.messagingServiceSid,
+              statusCallbackUrl: tw.statusCallbackUrl,
+            })
+          : new LogSmsGateway(this.app.inProduction)
+      if (sms.provider !== 'twilio' && this.app.inProduction) {
+        logger.error('[sms] SMS_PROVIDER=log en production : aucun SMS ne partira')
+      }
+      return new SmsSender(
+        new LucidUnitOfWork(),
+        gateway,
+        await resolver.make(LucidNotificationJournal),
+        await resolver.make(LucidSmsBalanceLedger),
+        new SystemClock(),
+        { enforceBalance: sms.enforceBalance },
+        (message, meta) => logger.warn(meta, message)
+      )
+    })
+  }
+
+  /** Outbox — handlers enregistrés auprès de `node ace sisbm:outbox:dispatch`. */
+  private registerOutbox() {
+    const cfg = sisbmConfig.outbox
+    this.app.container.singleton(IdentitySmsNotifications, async (resolver) => {
+      return new IdentitySmsNotifications(
+        new LucidUserAccountRepository(),
+        await resolver.make(SmsSender),
+        { brand: sisbmConfig.sms.brand }
+      )
+    })
+    this.app.container.singleton(OutboxDispatcher, async (resolver) => {
+      return new OutboxDispatcher(
+        [await resolver.make(IdentitySmsNotifications)],
+        {
+          batchSize: cfg.batchSize,
+          maxAttempts: cfg.maxAttempts,
+          retryBaseSeconds: cfg.retryBaseSeconds,
+          staleLockSeconds: cfg.staleLockSeconds,
+        },
+        `${hostname()}:${process.pid}`,
+        (level, message, meta) => logger[level](meta, message)
       )
     })
   }
@@ -282,6 +387,45 @@ export default class ContainerProvider {
         await resolver.make(RoleAssignment),
         new AdonisPasswordHasher(),
         new UuidGenerator(),
+        new LucidAuditLogger()
+      )
+    })
+
+    // ---- cycle de vie : suspension (événement → SMS par l'outbox)
+    this.app.container.singleton(SuspendUserAccount, () => {
+      return new SuspendUserAccount(new LucidUnitOfWork(), users, users, new LucidAuditLogger())
+    })
+
+    // ---- mot de passe oublié : OTP par SMS
+    const otp = sisbmConfig.otp
+    const otps = new LucidOtpRepository()
+    const verifier = new OtpVerifier(otps, new HmacOtpCodeService(env.get('APP_KEY')), otp)
+
+    this.app.container.singleton(RequestPasswordReset, async (resolver) => {
+      return new RequestPasswordReset(
+        new LucidUnitOfWork(),
+        users,
+        otps,
+        new HmacOtpCodeService(env.get('APP_KEY')),
+        await resolver.make(SmsSender),
+        new SystemClock(),
+        new UuidGenerator(),
+        new LucidAuditLogger(),
+        { policy: otp, brand: sisbmConfig.sms.brand }
+      )
+    })
+    this.app.container.singleton(VerifyPasswordResetCode, () => {
+      return new VerifyPasswordResetCode(new LucidUnitOfWork(), users, verifier, new SystemClock())
+    })
+    this.app.container.singleton(ResetPassword, () => {
+      return new ResetPassword(
+        new LucidUnitOfWork(),
+        users,
+        users,
+        otps,
+        verifier,
+        new AdonisPasswordHasher(),
+        new SystemClock(),
         new LucidAuditLogger()
       )
     })

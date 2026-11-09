@@ -744,6 +744,7 @@ export default class DeviceController {
   /*
   Suppression d'un boîtier : Flespi d'abord, base ensuite. le boitier est mis hors service et archivé (deleted_at) : il n'est pas physiquement supprimé de la base, pour conserver l'historique des positions du véhicule.
   */
+  /*
   private async destroyScoped(ctx: HttpContext, scope: TenantScope) {
     const device = await this.trouver(ctx, scope)
     if (!device) return this.introuvable(ctx)
@@ -789,6 +790,62 @@ export default class DeviceController {
     await device.save()
     //supprimer le cache du boitier pour que le worker d'ingestion rattache les trames au bon véhicule
     await this.invalider(device)
+    return ctx.response.noContent()
+  }
+ */
+
+  /*
+  Device detruit en base de donnée et chez flespi , le boitier est mis hors service et est supprimé en base de donnée 
+  */
+  /*
+    Suppression d'un boîtier : Flespi d'abord, base de données ensuite (suppression définitive).
+  */
+  private async destroyScoped(ctx: HttpContext, scope: TenantScope) {
+    const device = await this.trouver(ctx, scope)
+    if (!device) return this.introuvable(ctx)
+
+    // Un boîtier encore monté ne se supprime pas : l'historique du véhicule
+    // en dépend. Il faut le démonter explicitement d'abord.
+    if (await this.assignments.isMounted(device.id)) {
+      return ctx.response.conflict({
+        error: {
+          code: 'E_DEVICE_STILL_ASSIGNED',
+          message: 'Démonter le boîtier de son véhicule avant de le supprimer',
+          details: {},
+        },
+      })
+    }
+
+    if (device.flespiDeviceId) {
+      try {
+        await this.gateway.delete(device.flespiDeviceId)
+      } catch (err) {
+        // Déjà supprimé chez flespi : rien à compenser, on supprime.
+        const dejaAbsent = err instanceof FlespiApiError && err.notFound
+        if (!dejaAbsent) {
+          logger.error(
+            { err, flespiDeviceId: device.flespiDeviceId },
+            '[devices] suppression Flespi en échec'
+          )
+          return ctx.response.badGateway({
+            error: {
+              code: 'E_FLESPI_UNAVAILABLE',
+              message:
+                "Le boîtier n'a pas pu être supprimé chez Flespi. Il n'a pas été supprimé " +
+                'localement : relancer une fois le service rétabli.',
+              details: { detail: (err as Error).message },
+            },
+          })
+        }
+      }
+    }
+
+    // Suppression définitive de l'enregistrement en base de données
+    await device.delete()
+
+    // Supprimer le cache du boîtier
+    await this.invalider(device)
+
     return ctx.response.noContent()
   }
 

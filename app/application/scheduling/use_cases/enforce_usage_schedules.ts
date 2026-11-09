@@ -8,6 +8,8 @@ import type {
   EnforcementStateStore,
   EnforcementTarget,
   IssueOutcome,
+  EnforcementEvent,
+  EnforcementEventLog,
 } from '#application/scheduling/ports'
 
 import {
@@ -107,6 +109,7 @@ export class EnforceUsageSchedules implements UseCase<
     private readonly reconciler: CommandReconciler,
     private readonly clock: Clock,
     private readonly audit: AuditLogger,
+    private readonly events: EnforcementEventLog,
     private readonly settings: EnforcementSettings,
     private readonly onError: (err: unknown, vehicleId: string) => void = () => {}
   ) {}
@@ -211,6 +214,11 @@ export class EnforceUsageSchedules implements UseCase<
 
     if (!dryRun) {
       if (hasChanged(previous, state)) await this.store.save(state)
+      const journal = journalEvents({ target, verdict, decision, previous, issued, now })
+      if (journal.length > 0) {
+        // Au mieux, comme l'audit : un journal indisponible ne doit pas empêcher une coupure.
+        await this.events.record(journal).catch((err) => this.onError(err, target.vehicleId))
+      }
       if (decision.transition || ['overridden', 'manual_cut_kept'].includes(decision.outcome)) {
         await this.trace(target, state, verdict.decisive?.scheduleName ?? null).catch((err) =>
           this.onError(err, target.vehicleId)
@@ -264,6 +272,70 @@ export class EnforceUsageSchedules implements UseCase<
       metadata: { registration: target.registration },
     })
   }
+}
+
+/**
+ * Événements à journaliser pour ce passage — la matière des analyses :
+ *
+ *   transition       entrée / sortie de plage
+ *   dispatched       commande émise (échec passerelle compris : son statut le dira)
+ *   refused          tentative refusée avant l'envoi, une ligne PAR tentative
+ *   completed …      issues ponctuelles (une seule fois par action)
+ */
+function journalEvents(input: {
+  target: EnforcementTarget
+  verdict: ReturnType<typeof resolveUsage>
+  decision: ReturnType<typeof decideEnforcement>
+  previous: EnforcementState | null
+  issued: IssueOutcome | null
+  now: Date
+}): EnforcementEvent[] {
+  const { target, verdict, decision, previous, issued, now } = input
+  const source = verdict.decisive?.source
+  const base = {
+    organizationId: target.organizationId,
+    vehicleId: target.vehicleId,
+    // Sortie de plage : le verdict « libre » n'a plus de calendrier décisif, on garde celui qui coupait.
+    scheduleId: verdict.decisive?.scheduleId ?? previous?.scheduleId ?? null,
+    vehicleGroupId: source?.type === 'group' ? source.groupId : null,
+    desired: decision.memory.desired,
+    action: null,
+    commandId: null,
+    errorCode: null,
+    pendingSince: null,
+    occurredAt: now,
+  } satisfies Omit<EnforcementEvent, 'kind'>
+
+  const out: EnforcementEvent[] = []
+  if (decision.transition) out.push({ ...base, kind: 'transition' })
+
+  if (
+    decision.outcome === 'completed' ||
+    decision.outcome === 'overridden' ||
+    decision.outcome === 'manual_cut_kept' ||
+    decision.outcome === 'already_immobilized'
+  ) {
+    out.push({
+      ...base,
+      kind: decision.outcome,
+      action: previous?.pendingAction ?? null,
+      pendingSince: previous?.pendingSince ?? null,
+    })
+  }
+
+  if (issued && decision.action) {
+    const emise =
+      issued.commandId !== null && (!issued.errorCode || issued.errorCode === 'E_DISPATCH_FAILED')
+    out.push({
+      ...base,
+      kind: emise ? 'dispatched' : 'refused',
+      action: decision.action,
+      commandId: issued.commandId,
+      errorCode: emise ? null : (issued.errorCode ?? 'E_UNKNOWN'),
+      pendingSince: decision.memory.pendingSince,
+    })
+  }
+  return out
 }
 
 /** On n'écrit la mémoire que si elle change : pas d'UPDATE par véhicule et par minute. */

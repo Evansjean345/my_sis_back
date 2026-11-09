@@ -2220,6 +2220,48 @@ export class RoleSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class ScheduleEnforcementEventSchema extends BaseModel {
+  static $columns = [
+    'action',
+    'commandId',
+    'desiredState',
+    'errorCode',
+    'id',
+    'kind',
+    'occurredAt',
+    'organizationId',
+    'pendingSince',
+    'usageScheduleId',
+    'vehicleGroupId',
+    'vehicleId',
+  ] as const
+  $columns = ScheduleEnforcementEventSchema.$columns
+  @column()
+  declare action: string | null
+  @column()
+  declare commandId: string | null
+  @column()
+  declare desiredState: string | null
+  @column()
+  declare errorCode: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare kind: string
+  @column.dateTime()
+  declare occurredAt: DateTime
+  @column()
+  declare organizationId: string
+  @column.dateTime()
+  declare pendingSince: DateTime | null
+  @column()
+  declare usageScheduleId: string | null
+  @column()
+  declare vehicleGroupId: string | null
+  @column()
+  declare vehicleId: string
+}
+
 export class ScheduleWindowSchema extends BaseModel {
   static $columns = ['dayOfWeek', 'endTime', 'id', 'startTime', 'usageScheduleId'] as const
   $columns = ScheduleWindowSchema.$columns

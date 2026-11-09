@@ -4,6 +4,7 @@ import { authRoutes } from '#start/routes/auth'
 import { clientRoutes } from '#start/routes/client_routes'
 import { adminRoutes } from '#start/routes/admin_routes'
 import { flespiGatewaysRoutes } from '#start/routes/admin/admin_flespi_gateways'
+import { webhookRoutes } from '#start/routes/webhooks'
 
 /**
  * Routage de l'API — versionné dès le premier jour.
@@ -38,5 +39,6 @@ router
      * doute sur qui y a accès.
      */
     flespiGatewaysRoutes() // auth() + platformAdmin()
+    webhookRoutes() // public, signature du prestataire (Twilio)
   })
   .prefix('/api/v1')

@@ -6,6 +6,7 @@ import { DomainError } from '#domain/kernel'
 import { FlespiApiError } from '#infrastructure/gateways/flespi/flespi_client'
 import { FlespiIdentError } from '#infrastructure/gateways/flespi/flespi_ident'
 import { ProvisioningError } from '#infrastructure/gateways/flespi/flespi_provisioning'
+import { TwilioApiError } from '#infrastructure/gateways/twilio/twilio_client'
 
 /**
  * Index uniques des identifiants de compte (migrations 002 et 014). Un e-mail
@@ -71,6 +72,21 @@ export default class HttpExceptionHandler extends ExceptionHandler {
     /*objet intancié pour traiter les erreurs liées à Flespi --- 
     un code d'erreur de 0 est mauvaise configuration de flespi
     */
+    /** Erreur Twilio (lecture du compte) : code Twilio relayé, jamais le corps de la requête. */
+    if (error instanceof TwilioApiError) {
+      return ctx.response.status(error.httpStatusForClient).send({
+        error: {
+          code: error.status === 0 ? 'E_TWILIO_NOT_CONFIGURED' : 'E_TWILIO',
+          message: error.twilioMessage,
+          details: {
+            twilioStatus: error.status,
+            twilioCode: error.twilioCode,
+            moreInfo: error.moreInfo,
+          },
+        },
+      })
+    }
+
     if (error instanceof FlespiApiError) {
       return ctx.response.status(error.httpStatusForClient).send({
         error: {

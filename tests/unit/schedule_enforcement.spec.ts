@@ -20,6 +20,8 @@ import { EnforceUsageSchedules } from '#application/scheduling/use_cases/enforce
 import { UseCaseEngineCommandIssuer } from '#application/scheduling/engine_command_issuer'
 import type {
   EngineCommandIssuer,
+  EnforcementEvent,
+  EnforcementEventLog,
   EnforcementReader,
   EnforcementState,
   EnforcementStateStore,
@@ -374,10 +376,20 @@ class FakeStore implements EnforcementStateStore {
   }
 }
 
+class FakeEventLog implements EnforcementEventLog {
+  readonly events: EnforcementEvent[] = []
+  constructor(private readonly panne = false) {}
+  async record(events: EnforcementEvent[]) {
+    if (this.panne) throw new Error('journal indisponible')
+    this.events.push(...events)
+  }
+}
+
 function moteur(
   targets: EnforcementTarget[],
   issuer: EngineCommandIssuer,
-  store = new FakeStore()
+  store = new FakeStore(),
+  journal = new FakeEventLog()
 ) {
   const audits: string[] = []
   const reader: EnforcementReader = { listTargets: async () => targets }
@@ -389,9 +401,10 @@ function moteur(
     { syncAll: async () => undefined },
     { now: () => NOW },
     audit,
+    journal,
     { retryIntervalSeconds: 60, backoffSeconds: 900 }
   )
-  return { use, store, audits }
+  return { use, store, audits, journal }
 }
 
 test.group('planification · cas d’usage EnforceUsageSchedules', () => {
@@ -492,6 +505,145 @@ test.group('planification · cas d’usage EnforceUsageSchedules', () => {
       assert.lengthOf(r.value.entries, 1)
       assert.equal(r.value.entries[0].registration, 'B')
     }
+  })
+})
+
+// =========================================================================
+//  Journal d'exécution (schedule_enforcement_events)
+// =========================================================================
+
+test.group('planification · journal d’exécution', () => {
+  const CMD = '88888888-8888-4888-8888-888888888888'
+  const SCHEDULE = '77777777-7777-4777-8777-777777777777'
+  const kinds = (events: EnforcementEvent[]) => events.map((e) => e.kind)
+
+  function armee(over: Partial<EnforcementState> = {}): EnforcementState {
+    return {
+      vehicleId: VEHICLE,
+      organizationId: ORG,
+      desired: 'immobilized',
+      cause: 'outside_allowed_windows',
+      scheduleId: SCHEDULE,
+      pendingAction: 'cut',
+      pendingSince: new Date(NOW.getTime() - 5 * 60_000),
+      nextAttemptAt: null,
+      attempts: 1,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      lastCommandId: CMD,
+      lastOutcome: 'dispatch',
+      evaluatedAt: NOW,
+      ...over,
+    }
+  }
+
+  test('entrée hors plage : transition puis commande émise, rattachées au calendrier', async ({
+    assert,
+  }) => {
+    const { use, journal } = moteur([cible()], new FakeIssuer({ commandId: CMD }))
+    await use.execute()
+    assert.deepEqual(kinds(journal.events), ['transition', 'dispatched'])
+    const [transition, emise] = journal.events
+    assert.equal(transition.desired, 'immobilized')
+    assert.isNotNull(transition.scheduleId)
+    assert.equal(emise.action, 'cut')
+    assert.equal(emise.commandId, CMD)
+    assert.equal(emise.pendingSince?.getTime(), NOW.getTime())
+    assert.isNull(emise.errorCode)
+  })
+
+  test('refus avant émission (CM-07) : journalisé avec son code, sans commande', async ({
+    assert,
+  }) => {
+    const { use, journal } = moteur(
+      [cible()],
+      new FakeIssuer({ status: null, errorCode: 'E_VEHICLE_IN_MOTION' })
+    )
+    await use.execute()
+    const refus = journal.events.find((e) => e.kind === 'refused')
+    assert.exists(refus)
+    assert.equal(refus?.errorCode, 'E_VEHICLE_IN_MOTION')
+    assert.isNull(refus?.commandId)
+  })
+
+  test('échec passerelle : compté comme émis (le statut de la commande dira l’échec)', async ({
+    assert,
+  }) => {
+    const { use, journal } = moteur(
+      [cible()],
+      new FakeIssuer({ commandId: CMD, status: 'failed', errorCode: 'E_DISPATCH_FAILED' })
+    )
+    await use.execute()
+    assert.deepEqual(kinds(journal.events), ['transition', 'dispatched'])
+  })
+
+  test('commande créée puis annulée avant l’envoi : refus, commande conservée', async ({
+    assert,
+  }) => {
+    const { use, journal } = moteur(
+      [cible()],
+      new FakeIssuer({
+        commandId: CMD,
+        status: 'cancelled',
+        errorCode: 'E_IMMOBILIZATION_DISABLED',
+      })
+    )
+    await use.execute()
+    const refus = journal.events.find((e) => e.kind === 'refused')
+    assert.equal(refus?.commandId, CMD)
+    assert.equal(refus?.errorCode, 'E_IMMOBILIZATION_DISABLED')
+  })
+
+  test('objectif atteint : `completed` porte l’action et le début de plage (délai réel)', async ({
+    assert,
+  }) => {
+    const etat = armee()
+    const { use, journal } = moteur(
+      [
+        cible({
+          state: etat,
+          lastConfirmed: { commandType: 'engine_cut', origin: 'schedule', at: NOW },
+        }),
+      ],
+      new FakeIssuer()
+    )
+    await use.execute()
+    assert.deepEqual(kinds(journal.events), ['completed'])
+    assert.equal(journal.events[0].action, 'cut')
+    assert.equal(journal.events[0].pendingSince?.getTime(), etat.pendingSince?.getTime())
+    assert.equal(journal.events[0].scheduleId, SCHEDULE)
+  })
+
+  test('dérogation opérateur journalisée', async ({ assert }) => {
+    const { use, journal } = moteur(
+      [cible({ state: armee(), lastOperatorCommandAt: new Date(NOW.getTime() - 60_000) })],
+      new FakeIssuer()
+    )
+    await use.execute()
+    assert.deepEqual(kinds(journal.events), ['overridden'])
+  })
+
+  test('passage sans changement : rien à journaliser', async ({ assert }) => {
+    const calme = armee({ pendingAction: null, pendingSince: null, lastOutcome: 'idle' })
+    const { use, journal } = moteur([cible({ state: calme })], new FakeIssuer())
+    await use.execute()
+    assert.lengthOf(journal.events, 0)
+  })
+
+  test('simulation : rien n’est journalisé', async ({ assert }) => {
+    const { use, journal } = moteur([cible()], new FakeIssuer())
+    await use.execute({ dryRun: true })
+    assert.lengthOf(journal.events, 0)
+  })
+
+  test('journal indisponible : la coupure part quand même', async ({ assert }) => {
+    const issuer = new FakeIssuer({ commandId: CMD })
+    const { use, store } = moteur([cible()], issuer, new FakeStore(), new FakeEventLog(true))
+    const r = await use.execute()
+    assert.isTrue(r.ok)
+    if (r.ok) assert.equal(r.value.dispatched, 1)
+    assert.lengthOf(issuer.appels, 1)
+    assert.lengthOf(store.sauvegardes, 1)
   })
 })
 

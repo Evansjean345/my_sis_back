@@ -849,3 +849,40 @@ Authorization: Bearer {{superToken}}
 ### supprimer le conducteur
 DELETE {{api}}/admin/drivers/{{adminDriverId}}
 Authorization: Bearer {{superToken}}
+
+
+### ═════════════════════════════ MOT DE PASSE OUBLIÉ (OTP SMS — Twilio)
+### 1. demander un code — toujours 202, même corps que le numéro existe ou non
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "phone": "+225 01 61 89 99 90" }
+
+### 2. vérifier le code (facultatif, ne le consomme pas ; les échecs comptent)
+POST {{api}}/auth/password/verify
+Content-Type: application/json
+
+{ "phone": "0161899990", "code": "123456" }
+
+### 3. réinitialiser — 204, toutes les sessions sont révoquées
+POST {{api}}/auth/password/reset
+Content-Type: application/json
+
+{
+  "phone": "+2250161899990",
+  "code": "123456",
+  "password": "NouveauMotDePasse2026!",
+  "password_confirmation": "NouveauMotDePasse2026!"
+}
+
+### ═════════════════════════════ SOLDE SMS (super administrateur)
+### crédits plateforme + compte Twilio (solde USD, SMS du mois)
+GET {{api}}/admin/sms/balance
+Authorization: Bearer {{superToken}}
+
+### recharger les crédits plateforme (trace sms.topup)
+POST {{api}}/admin/sms/topup
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "credits": 500, "reference": "Recharge Twilio nov. 2026" }
