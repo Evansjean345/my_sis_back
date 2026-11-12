@@ -28,14 +28,16 @@ export class LucidNotificationJournal implements NotificationJournal {
   async reserve(entry: NewSmsNotification, tx?: TransactionScope): Promise<SmsReservation | null> {
     const c = client(tx)
     const insere = await c.rawQuery(
-      `INSERT INTO notifications (organization_id, channel, recipient_user_id, recipient_address,
-                                  template_code, body, status, attempts, provider, segments,
-                                  dedup_key, payload)
-       VALUES (?, 'sms', ?, ?, ?, ?, 'queued', 1, ?, ?, ?, ?::jsonb)
+      `INSERT INTO notifications (organization_id, channel, subject, recipient_user_id,
+                                  recipient_address, template_code, body, status, attempts,
+                                  provider, segments, dedup_key, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 1, ?, ?, ?, ?::jsonb)
        ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING
        RETURNING id`,
       [
         entry.organizationId,
+        entry.channel ?? 'sms',
+        entry.subject ?? null,
         entry.recipientUserId,
         entry.recipientAddress,
         entry.templateCode,

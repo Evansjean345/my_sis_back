@@ -191,6 +191,24 @@ const sisbmConfig = {
     statusCallbackUrl: env.get('TWILIO_STATUS_CALLBACK_URL', ''),
   },
 
+  /**
+   * E-mails transactionnels — `brevo`, ou `log` (console, interdit en
+   * production). L'expéditeur doit être VÉRIFIÉ dans Brevo.
+   */
+  mail: {
+    provider: env.get('MAIL_PROVIDER', 'log') as 'brevo' | 'log',
+    fromEmail: env.get('MAIL_FROM_EMAIL', 'no-reply@sisbm.ci'),
+    fromName: env.get('MAIL_FROM_NAME', 'SISBM CORE'),
+    replyTo: env.get('MAIL_REPLY_TO', ''),
+  },
+
+  /** API Brevo v3 — clé « API v3 » (`xkeysib-…`), jamais commitée. */
+  brevo: {
+    apiKey: env.get('BREVO_API_KEY', ''),
+    baseUrl: env.get('BREVO_BASE_URL', 'https://api.brevo.com'),
+    timeoutMs: env.get('BREVO_TIMEOUT_MS', 10000),
+  },
+
   /** Codes à usage unique — cf. domain/identity/otp_policy.ts. */
   otp: {
     length: env.get('OTP_LENGTH', 6),

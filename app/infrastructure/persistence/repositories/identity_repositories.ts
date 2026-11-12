@@ -138,6 +138,16 @@ export class LucidUserAccountRepository
     return row ? toUserContact(row) : null
   }
 
+  async findActiveByEmail(email: string, tx?: TransactionScope): Promise<UserContact | null> {
+    // `email` est citext : la comparaison ignore la casse.
+    const row = await UserModel.query({ client: trx(tx) })
+      .where('email', email)
+      .where('status', 'active')
+      .whereNull('deleted_at')
+      .first()
+    return row ? toUserContact(row) : null
+  }
+
   // ---------------------------------------------------------------- cycle de vie
 
   async setStatus(userId: string, status: UserStatus, tx?: TransactionScope): Promise<void> {

@@ -46,7 +46,10 @@ export class UserAccountSuspended extends BaseDomainEvent {
  * le titulaire est prévenu par le canal qu'il consulte.
  */
 export class UserPasswordReset extends BaseDomainEvent {
-  constructor(userId: string, payload: { organizationId: string; method: 'otp_sms' }) {
+  constructor(
+    userId: string,
+    payload: { organizationId: string; method: 'otp_sms' | 'otp_email' }
+  ) {
     super('identity.user.password_reset', userId, payload)
   }
 }

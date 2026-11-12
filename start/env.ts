@@ -126,6 +126,15 @@ export default await Env.create(new URL('../', import.meta.url), {
   TWILIO_MESSAGING_SERVICE_SID: Env.schema.string.optional(),
   TWILIO_STATUS_CALLBACK_URL: Env.schema.string.optional(),
 
+  // ---------------------------------------------------------- e-mail (brevo)
+  MAIL_PROVIDER: Env.schema.enum.optional(['brevo', 'log'] as const),
+  MAIL_FROM_EMAIL: Env.schema.string.optional(),
+  MAIL_FROM_NAME: Env.schema.string.optional(),
+  MAIL_REPLY_TO: Env.schema.string.optional(),
+  BREVO_API_KEY: Env.schema.string.optional(),
+  BREVO_BASE_URL: Env.schema.string.optional(),
+  BREVO_TIMEOUT_MS: Env.schema.number.optional(),
+
   // ---------------------------------------------------------- otp
   OTP_LENGTH: Env.schema.number.optional(),
   OTP_TTL_SECONDS: Env.schema.number.optional(),

@@ -3,9 +3,12 @@ import type { Clock, UnitOfWork, UseCase } from '#application/ports'
 import type { UserContactReader } from '#application/identity/ports'
 import type { OtpCheckError, OtpVerifier } from '#application/identity/services/otp_verifier'
 import { InvalidOtpError } from '#domain/identity/errors'
+import type { AccountIdentifier } from '#domain/identity/otp_policy'
+import { findActiveAccount } from '#application/identity/services/account_lookup'
 
 export interface VerifyPasswordResetCodeInput {
-  phone: string
+  /** Le même identifiant que pour la demande, ou l'autre : seul le compte compte. */
+  identifier: AccountIdentifier
   code: string
 }
 
@@ -39,7 +42,7 @@ export class VerifyPasswordResetCode implements UseCase<
   async execute(
     input: VerifyPasswordResetCodeInput
   ): Promise<Result<VerifyPasswordResetCodeOutput, OtpCheckError>> {
-    const user = await this.users.findActiveByPhone(input.phone)
+    const user = await findActiveAccount(this.users, input.identifier)
     if (!user) return Err(new InvalidOtpError())
 
     return this.unitOfWork.run(async (tx) => {

@@ -9,9 +9,12 @@ import type {
 import type { OtpCheckError, OtpVerifier } from '#application/identity/services/otp_verifier'
 import { InvalidOtpError } from '#domain/identity/errors'
 import { UserPasswordReset } from '#domain/identity/events'
+import type { AccountIdentifier } from '#domain/identity/otp_policy'
+import { findActiveAccount } from '#application/identity/services/account_lookup'
 
 export interface ResetPasswordInput {
-  phone: string
+  /** E-mail ou téléphone du compte. */
+  identifier: AccountIdentifier
   code: string
   /** Déjà validé par la présentation (12 caractères minimum, confirmé). */
   newPassword: string
@@ -22,7 +25,7 @@ export interface ResetPasswordInput {
 
 /**
  * =========================================================================
- *  CAS D'USAGE — Réinitialiser le mot de passe avec le code reçu par SMS
+ *  CAS D'USAGE — Réinitialiser le mot de passe avec le code reçu (SMS ou e-mail)
  * =========================================================================
  *
  * TOUT OU RIEN, en une transaction :
@@ -60,7 +63,7 @@ export class ResetPassword implements UseCase<
   async execute(input: ResetPasswordInput): Promise<Result<{ userId: string }, OtpCheckError>> {
     const passwordHash = await this.hasher.make(input.newPassword)
 
-    const user = await this.users.findActiveByPhone(input.phone)
+    const user = await findActiveAccount(this.users, input.identifier)
     if (!user) return Err(new InvalidOtpError())
 
     const now = this.clock.now()
@@ -80,9 +83,13 @@ export class ResetPassword implements UseCase<
       // rend le code de nouveau utilisable.
       await this.otps.consume(r.value.id, now, tx)
       tx.collect([
-        new UserPasswordReset(user.id, { organizationId: user.organizationId, method: 'otp_sms' }),
+        // Le canal du code décide du canal de l'alerte « mot de passe modifié ».
+        new UserPasswordReset(user.id, {
+          organizationId: user.organizationId,
+          method: r.value.channel === 'email' ? 'otp_email' : 'otp_sms',
+        }),
       ])
-      return Ok({ userId: user.id, otpId: r.value.id })
+      return Ok({ userId: user.id, otpId: r.value.id, channel: r.value.channel })
     })
 
     if (!result.ok) return result
@@ -99,7 +106,7 @@ export class ResetPassword implements UseCase<
       action: 'identity.password_reset.completed',
       resourceType: 'user',
       resourceId: user.id,
-      metadata: { otpId: result.value.otpId, method: 'otp_sms' },
+      metadata: { otpId: result.value.otpId, channel: result.value.channel },
     })
 
     return Ok({ userId: user.id })

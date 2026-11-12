@@ -60,7 +60,13 @@ import { VerifyPasswordResetCode } from '#application/identity/use_cases/verify_
 import { ResetPassword } from '#application/identity/use_cases/reset_password'
 import { OtpVerifier } from '#application/identity/services/otp_verifier'
 import { SmsSender } from '#application/notification/services/sms_sender'
-import { IdentitySmsNotifications } from '#application/notification/handlers/identity_sms_notifications'
+import { IdentityNotifications } from '#application/notification/handlers/identity_notifications'
+import { EmailSender } from '#application/notification/services/email_sender'
+import { NotificationDispatcher } from '#application/notification/services/notification_dispatcher'
+import type { EmailGateway } from '#application/notification/ports'
+import { BrevoClient } from '#infrastructure/gateways/brevo/brevo_client'
+import { BrevoEmailGateway } from '#infrastructure/gateways/brevo/brevo_email_gateway'
+import { LogEmailGateway } from '#infrastructure/gateways/brevo/log_email_gateway'
 import type { SmsGateway } from '#application/notification/ports'
 import { LucidOtpRepository } from '#infrastructure/persistence/repositories/otp_repository'
 import {
@@ -334,6 +340,9 @@ export default class ContainerProvider {
       if (sms.provider !== 'twilio' && this.app.inProduction) {
         logger.error('[sms] SMS_PROVIDER=log en production : aucun SMS ne partira')
       }
+      // Visible au démarrage de chaque processus : évite de chercher pourquoi
+      // les SMS « restent dans les logs ».
+      logger.info(`[sms] passerelle : ${gateway.provider}`)
       return new SmsSender(
         new LucidUnitOfWork(),
         gateway,
@@ -344,21 +353,53 @@ export default class ContainerProvider {
         (message, meta) => logger.warn(meta, message)
       )
     })
+
+    // ---- e-mail (Brevo)
+    const mail = sisbmConfig.mail
+    this.app.container.singleton(BrevoClient, () => new BrevoClient(sisbmConfig.brevo))
+    this.app.container.singleton(EmailSender, async (resolver) => {
+      const gateway: EmailGateway =
+        mail.provider === 'brevo'
+          ? new BrevoEmailGateway(await resolver.make(BrevoClient), {
+              fromEmail: mail.fromEmail,
+              fromName: mail.fromName,
+              replyTo: mail.replyTo,
+            })
+          : new LogEmailGateway(this.app.inProduction)
+      if (mail.provider !== 'brevo' && this.app.inProduction) {
+        logger.error('[email] MAIL_PROVIDER=log en production : aucun e-mail ne partira')
+      }
+      logger.info(`[email] passerelle : ${gateway.provider}`)
+      return new EmailSender(
+        gateway,
+        await resolver.make(LucidNotificationJournal),
+        new SystemClock(),
+        (message, meta) => logger.warn(meta, message)
+      )
+    })
+
+    // ---- répartiteur : le canal du message choisit l'expéditeur
+    this.app.container.singleton(NotificationDispatcher, async (resolver) => {
+      return new NotificationDispatcher(
+        await resolver.make(SmsSender),
+        await resolver.make(EmailSender)
+      )
+    })
   }
 
   /** Outbox — handlers enregistrés auprès de `node ace sisbm:outbox:dispatch`. */
   private registerOutbox() {
     const cfg = sisbmConfig.outbox
-    this.app.container.singleton(IdentitySmsNotifications, async (resolver) => {
-      return new IdentitySmsNotifications(
+    this.app.container.singleton(IdentityNotifications, async (resolver) => {
+      return new IdentityNotifications(
         new LucidUserAccountRepository(),
-        await resolver.make(SmsSender),
+        await resolver.make(NotificationDispatcher),
         { brand: sisbmConfig.sms.brand }
       )
     })
     this.app.container.singleton(OutboxDispatcher, async (resolver) => {
       return new OutboxDispatcher(
-        [await resolver.make(IdentitySmsNotifications)],
+        [await resolver.make(IdentityNotifications)],
         {
           batchSize: cfg.batchSize,
           maxAttempts: cfg.maxAttempts,
@@ -411,7 +452,7 @@ export default class ContainerProvider {
         users,
         otps,
         new HmacOtpCodeService(env.get('APP_KEY')),
-        await resolver.make(SmsSender),
+        await resolver.make(NotificationDispatcher),
         new SystemClock(),
         new UuidGenerator(),
         new LucidAuditLogger(),

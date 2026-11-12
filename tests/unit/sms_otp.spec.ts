@@ -19,7 +19,13 @@ import type {
   SmsGatewayResult,
 } from '#application/notification/ports'
 import { SmsSender } from '#application/notification/services/sms_sender'
-import { IdentitySmsNotifications } from '#application/notification/handlers/identity_sms_notifications'
+import { IdentityNotifications } from '#application/notification/handlers/identity_notifications'
+import { EmailSender } from '#application/notification/services/email_sender'
+import { NotificationDispatcher } from '#application/notification/services/notification_dispatcher'
+import type { EmailGateway, OutgoingEmail } from '#application/notification/ports'
+import type { AccountIdentifier } from '#domain/identity/otp_policy'
+import { escapeHtml, isEmailAddress, maskEmail } from '#domain/notification/email_message'
+import { EmailTemplates } from '#domain/notification/email_templates'
 import { OtpVerifier } from '#application/identity/services/otp_verifier'
 import { RequestPasswordReset } from '#application/identity/use_cases/request_password_reset'
 import { VerifyPasswordResetCode } from '#application/identity/use_cases/verify_password_reset_code'
@@ -77,6 +83,7 @@ function monde(
   const otps: OtpRecord[] = []
   const journal: (NewSmsNotification & { id: string; status: string; error?: string })[] = []
   const envoyes: { to: string; body: string }[] = []
+  const emails: OutgoingEmail[] = []
   const evenements: DomainEvent[] = []
   const audit: string[] = []
   const motsDePasse = new Map<string, string>()
@@ -105,6 +112,13 @@ function monde(
   const users: UserContactReader & UserAccountWriter = {
     async findContactById(id) {
       return comptes.get(id) ?? null
+    },
+    async findActiveByEmail(email) {
+      return (
+        [...comptes.values()].find(
+          (c) => c.email.toLowerCase() === email.toLowerCase() && c.status === 'active'
+        ) ?? null
+      )
     },
     async findActiveByPhone(phone) {
       return [...comptes.values()].find((c) => c.phone === phone && c.status === 'active') ?? null
@@ -235,6 +249,15 @@ function monde(
 
   const hasher: PasswordHasher = { make: async (p) => `hash(${p})` }
   const sms = new SmsSender(uow, gateway, journalRepo, ledger, clock, { enforceBalance: true })
+  const emailGateway: EmailGateway = {
+    provider: 'test-mail',
+    async send(e) {
+      emails.push(e)
+      return { ok: true, providerMessageId: `<m${emails.length}@brevo>` }
+    },
+  }
+  const email = new EmailSender(emailGateway, journalRepo, clock)
+  const notifier = new NotificationDispatcher(sms, email)
   const verifier = new OtpVerifier(otpRepo, codes, DEFAULT_OTP_POLICY)
   const config = { policy: DEFAULT_OTP_POLICY, brand: 'SISBM CORE' }
 
@@ -243,6 +266,7 @@ function monde(
     otps,
     journal,
     envoyes,
+    emails,
     evenements,
     audit,
     motsDePasse,
@@ -263,7 +287,7 @@ function monde(
       users,
       otpRepo,
       codes,
-      sms,
+      notifier,
       clock,
       ids,
       auditLogger,
@@ -281,11 +305,13 @@ function monde(
       auditLogger
     ),
     suspendre: new SuspendUserAccount(uow, users, users, auditLogger),
-    notifications: new IdentitySmsNotifications(users, sms, { brand: 'SISBM CORE' }),
+    notifications: new IdentityNotifications(users, notifier, { brand: 'SISBM CORE' }),
   }
 }
 
 const MDP = 'NouveauMotDePasse2026!'
+const tel = (value: string): AccountIdentifier => ({ kind: 'phone', value })
+const mel = (value: string): AccountIdentifier => ({ kind: 'email', value })
 
 // ---------------------------------------------------------------- règles pures
 
@@ -491,22 +517,24 @@ test.group('SMS — service d’envoi unique', () => {
 test.group('Mot de passe oublié — demande de code', () => {
   test('numéro inconnu : même réponse, aucun SMS', async ({ assert }) => {
     const m = monde()
-    const r = await m.demander.execute({ phone: '+2250700000000' })
+    const r = await m.demander.execute({ identifier: tel('+2250700000000') })
     assert.isTrue(r.ok)
-    if (r.ok) assert.deepEqual(r.value, { expiresInSeconds: 600, resendAfterSeconds: 60 })
+    if (r.ok) {
+      assert.deepEqual(r.value, { channel: 'sms', expiresInSeconds: 600, resendAfterSeconds: 60 })
+    }
     assert.lengthOf(m.envoyes, 0)
     assert.lengthOf(m.otps, 0)
   })
 
   test('compte suspendu : aucun SMS', async ({ assert }) => {
     const m = monde({ comptes: [{ ...COMPTE, status: 'suspended' }] })
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     assert.lengthOf(m.envoyes, 0)
   })
 
   test('compte actif : code haché en base, en clair dans le SMS seulement', async ({ assert }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     assert.lengthOf(m.otps, 1)
     assert.equal(m.otps[0].codeHash, 'h(123456)')
     assert.include(m.envoyes[0].body, '123456')
@@ -519,14 +547,14 @@ test.group('Mot de passe oublié — demande de code', () => {
     assert,
   }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     m.clock.avancer(30)
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     assert.lengthOf(m.envoyes, 1)
     assert.include(m.audit, 'identity.password_reset.throttled')
 
     m.clock.avancer(31)
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     assert.lengthOf(m.envoyes, 2)
     assert.isNotNull(m.otps[0].invalidatedAt)
     assert.isNull(m.otps[1].invalidatedAt)
@@ -534,7 +562,7 @@ test.group('Mot de passe oublié — demande de code', () => {
 
   test('SMS non parti : le code est invalidé aussitôt', async ({ assert }) => {
     const m = monde({ solde: 0 })
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     assert.isNotNull(m.otps[0].invalidatedAt)
   })
 })
@@ -542,44 +570,49 @@ test.group('Mot de passe oublié — demande de code', () => {
 test.group('Mot de passe oublié — vérification et réinitialisation', () => {
   test('code faux : tentatives restantes, puis code invalidé au 5e échec', async ({ assert }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
 
     for (let i = 4; i >= 1; i--) {
-      const r = await m.verifier.execute({ phone: COMPTE.phone!, code: '000000' })
+      const r = await m.verifier.execute({ identifier: tel(COMPTE.phone!), code: '000000' })
       assert.isFalse(r.ok)
       if (!r.ok) assert.deepEqual(r.error.toJSON().details, { remainingAttempts: i })
     }
-    const dernier = await m.verifier.execute({ phone: COMPTE.phone!, code: '000000' })
+    const dernier = await m.verifier.execute({ identifier: tel(COMPTE.phone!), code: '000000' })
     assert.isFalse(dernier.ok)
     if (!dernier.ok) assert.equal(dernier.error.code, 'E_OTP_ATTEMPTS_EXCEEDED')
 
     // Même le bon code ne passe plus.
-    const bon = await m.verifier.execute({ phone: COMPTE.phone!, code: '123456' })
+    const bon = await m.verifier.execute({ identifier: tel(COMPTE.phone!), code: '123456' })
     assert.isFalse(bon.ok)
   })
 
   test('verify et reset partagent le même plafond', async ({ assert }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
-    for (let i = 0; i < 3; i++) await m.verifier.execute({ phone: COMPTE.phone!, code: '999999' })
-    await m.reinitialiser.execute({ phone: COMPTE.phone!, code: '999999', newPassword: MDP })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
+    for (let i = 0; i < 3; i++)
+      await m.verifier.execute({ identifier: tel(COMPTE.phone!), code: '999999' })
+    await m.reinitialiser.execute({
+      identifier: tel(COMPTE.phone!),
+      code: '999999',
+      newPassword: MDP,
+    })
     assert.equal(m.otps[0].attempts, 4)
   })
 
   test('verify ne consomme pas le code', async ({ assert }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
-    const r = await m.verifier.execute({ phone: COMPTE.phone!, code: '123456' })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
+    const r = await m.verifier.execute({ identifier: tel(COMPTE.phone!), code: '123456' })
     assert.isTrue(r.ok)
     assert.isNull(m.otps[0].consumedAt)
   })
 
   test('code expiré', async ({ assert }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     m.clock.avancer(601)
     const r = await m.reinitialiser.execute({
-      phone: COMPTE.phone!,
+      identifier: tel(COMPTE.phone!),
       code: '123456',
       newPassword: MDP,
     })
@@ -592,9 +625,9 @@ test.group('Mot de passe oublié — vérification et réinitialisation', () => 
     assert,
   }) => {
     const m = monde()
-    await m.demander.execute({ phone: COMPTE.phone! })
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
     const r = await m.reinitialiser.execute({
-      phone: COMPTE.phone!,
+      identifier: tel(COMPTE.phone!),
       code: '123456',
       newPassword: MDP,
     })
@@ -610,7 +643,7 @@ test.group('Mot de passe oublié — vérification et réinitialisation', () => 
 
     // Usage unique.
     const encore = await m.reinitialiser.execute({
-      phone: COMPTE.phone!,
+      identifier: tel(COMPTE.phone!),
       code: '123456',
       newPassword: MDP,
     })
@@ -620,7 +653,7 @@ test.group('Mot de passe oublié — vérification et réinitialisation', () => 
   test('numéro inconnu : même erreur qu’un code faux', async ({ assert }) => {
     const m = monde()
     const r = await m.reinitialiser.execute({
-      phone: '+2250700000000',
+      identifier: tel('+2250700000000'),
       code: '123456',
       newPassword: MDP,
     })
@@ -672,11 +705,12 @@ test.group('Comptes — suspension et SMS du cycle de vie', () => {
     attempts: 1,
   })
 
-  test('compte créé : SMS avec l’identifiant, jamais de mot de passe', async ({ assert }) => {
+  test('compte créé : SMS de bienvenue, jamais de mot de passe', async ({ assert }) => {
     const m = monde()
     const r = await m.notifications.handle(message('identity.user.created'))
     assert.deepEqual(r, { status: 'done' })
-    assert.include(m.envoyes[0].body, COMPTE.email)
+    assert.include(m.envoyes[0].body, COMPTE.fullName)
+    assert.notMatch(m.envoyes[0].body, /mot de passe\s*:/i)
     assert.equal(m.journal[0].dedupKey, 'identity.user.created:42')
   })
 
@@ -714,5 +748,119 @@ test.group('Comptes — suspension et SMS du cycle de vie', () => {
     const r = await m.notifications.handle(message('identity.user.created'))
     assert.deepEqual(r, { status: 'done' })
     assert.lengthOf(m.envoyes, 0)
+  })
+})
+
+// ---------------------------------------------------------------- e-mail (Brevo)
+
+test.group('E-mail — règles et modèles', () => {
+  test('adresse, masquage, échappement HTML', ({ assert }) => {
+    assert.isTrue(isEmailAddress('agent@client.ci'))
+    assert.isFalse(isEmailAddress('agent@client'))
+    assert.equal(maskEmail('evans.katchi@sisbm.ci'), 'ev**********@sisbm.ci')
+    assert.equal(escapeHtml('<b>"x"</b>'), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;')
+  })
+
+  test('code OTP : présent dans HTML et texte, masqué dans le journal', ({ assert }) => {
+    const m = EmailTemplates.passwordResetCode({
+      brand: 'SISBM CORE',
+      fullName: 'Agent Client',
+      code: '804211',
+      ttlMinutes: 10,
+    })
+    assert.include(m.html, '804211')
+    assert.include(m.text, '804211')
+    assert.notInclude(m.journalBody, '804211')
+    assert.include(m.subject, 'SISBM CORE')
+  })
+
+  test('un nom piégé ne peut pas injecter de HTML', ({ assert }) => {
+    const m = EmailTemplates.passwordChanged({
+      brand: 'SISBM CORE',
+      fullName: '<script>alert(1)</script>',
+    })
+    assert.notInclude(m.html, '<script>')
+    assert.include(m.html, '&lt;script&gt;')
+  })
+})
+
+test.group('Mot de passe oublié — choix du canal', () => {
+  test('identifiant e-mail, canal par défaut : code par e-mail, aucun SMS ni crédit', async ({
+    assert,
+  }) => {
+    const m = monde()
+    const r = await m.demander.execute({ identifier: mel('AGENT@client.ci') })
+    assert.isTrue(r.ok)
+    if (r.ok) assert.equal(r.value.channel, 'email')
+    assert.lengthOf(m.envoyes, 0)
+    assert.lengthOf(m.emails, 1)
+    assert.equal(m.emails[0].to, COMPTE.email)
+    assert.include(m.emails[0].text, '123456')
+    assert.equal(m.otps[0].channel, 'email')
+    assert.equal(m.otps[0].recipient, COMPTE.email)
+    assert.equal(m.journal[0].channel, 'email')
+    assert.notInclude(m.journal[0].body, '123456')
+    assert.equal(m.solde, 100)
+  })
+
+  test('identifiant e-mail, canal SMS : le code part au téléphone DU COMPTE', async ({
+    assert,
+  }) => {
+    const m = monde()
+    await m.demander.execute({ identifier: mel(COMPTE.email), channel: 'sms' })
+    assert.lengthOf(m.emails, 0)
+    assert.lengthOf(m.envoyes, 1)
+    assert.equal(m.envoyes[0].to, COMPTE.phone)
+  })
+
+  test('canal SMS sur un compte sans téléphone : même réponse, rien ne part', async ({
+    assert,
+  }) => {
+    const m = monde({ comptes: [{ ...COMPTE, phone: null }] })
+    const r = await m.demander.execute({ identifier: mel(COMPTE.email), channel: 'sms' })
+    assert.isTrue(r.ok)
+    assert.lengthOf(m.envoyes, 0)
+    assert.lengthOf(m.emails, 0)
+    assert.include(m.audit, 'identity.password_reset.no_recipient')
+  })
+
+  test('changer de canal ne contourne pas le délai de renvoi', async ({ assert }) => {
+    const m = monde()
+    await m.demander.execute({ identifier: tel(COMPTE.phone!) })
+    m.clock.avancer(10)
+    await m.demander.execute({ identifier: mel(COMPTE.email), channel: 'email' })
+    assert.lengthOf(m.envoyes, 1)
+    assert.lengthOf(m.emails, 0)
+  })
+
+  test('code reçu par e-mail, réinitialisation par téléphone : même compte, accepté', async ({
+    assert,
+  }) => {
+    const m = monde()
+    await m.demander.execute({ identifier: mel(COMPTE.email) })
+    const r = await m.reinitialiser.execute({
+      identifier: tel(COMPTE.phone!),
+      code: '123456',
+      newPassword: MDP,
+    })
+    assert.isTrue(r.ok)
+    const evt = m.evenements.find((e) => e.eventName === 'identity.user.password_reset')!
+    assert.equal(evt.payload.method, 'otp_email')
+  })
+
+  test('alerte « mot de passe modifié » par le canal du code', async ({ assert }) => {
+    const m = monde()
+    const msg = (method: string, id: string) => ({
+      id,
+      topic: 'identity.user.password_reset',
+      aggregateId: COMPTE.id,
+      payload: { method },
+      attempts: 1,
+    })
+    await m.notifications.handle(msg('otp_email', '1'))
+    await m.notifications.handle(msg('otp_sms', '2'))
+    assert.lengthOf(m.emails, 1)
+    assert.include(m.emails[0].subject, 'mot de passe')
+    assert.lengthOf(m.envoyes, 1)
   })
 })

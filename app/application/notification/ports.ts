@@ -52,6 +52,32 @@ export interface SmsGateway {
 }
 
 // ---------------------------------------------------------------------------
+// Passerelle e-mail (Brevo)
+// ---------------------------------------------------------------------------
+
+export interface OutgoingEmail {
+  to: string
+  toName?: string
+  subject: string
+  html: string
+  text: string
+  /** Catégories côté prestataire (filtres et statistiques Brevo). */
+  tags?: string[]
+  /** Référence SISBM du message, transmise en en-tête pour le suivi. */
+  reference?: string
+}
+
+export type EmailGatewayResult =
+  | { ok: true; providerMessageId: string }
+  | { ok: false; errorCode: string; errorMessage: string; retryable: boolean }
+
+export interface EmailGateway {
+  /** Nom stocké dans `notifications.provider` (`brevo`, `log`). */
+  readonly provider: string
+  send(email: OutgoingEmail): Promise<EmailGatewayResult>
+}
+
+// ---------------------------------------------------------------------------
 // Solde global
 // ---------------------------------------------------------------------------
 /*
@@ -103,6 +129,10 @@ clé d'idempotence pour éviter les doublons
 payload optionnel pour des données supplémentaires
 */
 export interface NewSmsNotification {
+  /** Canal de la ligne `notifications` (défaut : `sms`). */
+  channel?: 'sms' | 'email'
+  /** Objet — e-mail uniquement. */
+  subject?: string | null
   organizationId: string
   recipientUserId: string | null
   recipientAddress: string
@@ -124,6 +154,9 @@ export interface SmsReservation {
   /** Une ligne `failed` existante a été remise en file (nouvel essai). */
   retried: boolean
 }
+
+/** Le journal est commun aux canaux : même ligne, `channel` différent. */
+export type NewNotification = NewSmsNotification
 
 export type DeliveryStatus = 'sent' | 'delivered' | 'failed'
 

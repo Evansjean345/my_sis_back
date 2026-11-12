@@ -2,7 +2,7 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type { TransactionScope } from '#application/ports'
 import type { NewOtp, OtpRecord, OtpRepository } from '#application/identity/ports'
-import type { OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
+import type { OtpChannel, OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
 
 /**
  * Adaptateur de la table `otps` (migration 021). Traduction pure : la
@@ -19,6 +19,7 @@ interface OtpRow {
   id: string
   user_id: string
   purpose: OtpPurpose
+  channel: OtpChannel
   recipient: string
   code_hash: string
   attempts: number
@@ -33,6 +34,7 @@ const toRecord = (r: OtpRow): OtpRecord => ({
   id: r.id,
   userId: r.user_id,
   purpose: r.purpose,
+  channel: r.channel,
   recipient: r.recipient,
   codeHash: r.code_hash,
   attempts: Number(r.attempts),

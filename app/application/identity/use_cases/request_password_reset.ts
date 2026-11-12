@@ -13,14 +13,24 @@ import type {
   UserContact,
   UserContactReader,
 } from '#application/identity/ports'
-import type { SmsSender } from '#application/notification/services/sms_sender'
-import { canIssue, type OtpPolicyConfig } from '#domain/identity/otp_policy'
-import { SmsTemplates } from '#domain/notification/sms_templates'
+import type { NotificationDispatcher } from '#application/notification/services/notification_dispatcher'
+import { addressFor, findActiveAccount } from '#application/identity/services/account_lookup'
+import {
+  canIssue,
+  defaultChannelFor,
+  type AccountIdentifier,
+  type OtpChannel,
+  type OtpPolicyConfig,
+} from '#domain/identity/otp_policy'
+import { ChannelMessages } from '#domain/notification/channel_messages'
 import { maskPhone } from '#domain/notification/sms_message'
+import { maskEmail } from '#domain/notification/email_message'
 
 export interface RequestPasswordResetInput {
-  /** E.164, déjà validé par la présentation. */
-  phone: string
+  /** E-mail ou téléphone E.164, déjà normalisé par la présentation. */
+  identifier: AccountIdentifier
+  /** Canal CHOISI pour recevoir le code ; par défaut celui de l'identifiant. */
+  channel?: OtpChannel
   ip?: string | null
   userAgent?: string | null
   requestId?: string
@@ -28,13 +38,14 @@ export interface RequestPasswordResetInput {
 
 /** Réponse IDENTIQUE que le compte existe ou non. */
 export interface RequestPasswordResetOutput {
+  channel: OtpChannel
   expiresInSeconds: number
   resendAfterSeconds: number
 }
 
 export interface PasswordResetConfig {
   policy: OtpPolicyConfig
-  /** Préfixe des SMS (« SISBM CORE »). */
+  /** Nom de la plateforme dans les messages (« SISBM CORE »). */
   brand: string
 }
 
@@ -42,21 +53,27 @@ const PURPOSE = 'password_reset' as const
 
 /**
  * =========================================================================
- *  CAS D'USAGE — Demander un code de réinitialisation par SMS
+ *  CAS D'USAGE — Demander un code de réinitialisation (SMS ou e-mail)
  * =========================================================================
  *
- * Point d'entrée PUBLIC (aucune session) : il ne doit rien révéler. Numéro
- * inconnu, compte suspendu, délai de renvoi non écoulé, quota horaire
- * atteint, échec d'envoi : la réponse est toujours la même. Le détail part
- * dans le journal d'audit et dans `notifications`, pas dans la réponse.
+ * L'utilisateur saisit son e-mail OU son téléphone, et choisit le canal de
+ * remise : SMS (Twilio) ou e-mail (Brevo). On peut saisir son e-mail et
+ * recevoir le code par SMS : l'identifiant retrouve le compte, le canal
+ * choisit l'adresse de remise parmi celles DU COMPTE — jamais une adresse
+ * fournie dans la requête.
  *
- *   ① compte ACTIF portant ce numéro (index unique `uq_users_phone`) ;
- *   ② politique d'émission : 60 s entre deux codes, 5 par heure ;
+ * Point d'entrée PUBLIC : il ne doit rien révéler. Compte inconnu ou
+ * suspendu, canal SMS sur un compte sans téléphone, délai de renvoi, quota,
+ * échec d'envoi : la réponse est toujours la même. Le détail part dans
+ * l'audit et dans `notifications`.
+ *
+ *   ① compte ACTIF par l'identifiant, adresse de remise pour le canal ;
+ *   ② politique d'émission : 60 s entre deux codes, 5 par heure — TOUS
+ *     canaux confondus (changer de canal ne contourne pas le quota) ;
  *   ③ transaction : invalidation du code précédent + nouveau code (haché) ;
- *   ④ SMS, hors transaction, par le service d'envoi unique (solde + journal).
+ *   ④ remise, hors transaction, par le répartiteur de canal.
  *
- * Un code dont le SMS n'est pas parti est invalidé aussitôt : il ne pourrait
- * servir qu'à quelqu'un qui l'aurait obtenu autrement.
+ * Un code qui n'a pas pu partir est invalidé aussitôt.
  */
 export class RequestPasswordReset implements UseCase<
   RequestPasswordResetInput,
@@ -67,7 +84,7 @@ export class RequestPasswordReset implements UseCase<
     private readonly users: UserContactReader,
     private readonly otps: OtpRepository,
     private readonly codes: OtpCodeService,
-    private readonly sms: SmsSender,
+    private readonly notifier: NotificationDispatcher,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
     private readonly audit: AuditLogger,
@@ -78,14 +95,27 @@ export class RequestPasswordReset implements UseCase<
     input: RequestPasswordResetInput
   ): Promise<Result<RequestPasswordResetOutput, never>> {
     const policy = this.config.policy
+    const channel = input.channel ?? defaultChannelFor(input.identifier)
     const sortie = {
+      channel,
       expiresInSeconds: policy.ttlSeconds,
       resendAfterSeconds: policy.resendCooldownSeconds,
     }
 
-    // ---- ① compte actif
-    const user = await this.users.findActiveByPhone(input.phone)
-    if (!user?.phone) return Ok(sortie)
+    // ---- ① compte actif et adresse de remise
+    const user = await findActiveAccount(this.users, input.identifier)
+    if (!user) return Ok(sortie)
+    const recipient = addressFor(user, channel)
+    if (!recipient) {
+      await this.audit.record({
+        context: this.contexte(user, input),
+        action: 'identity.password_reset.no_recipient',
+        resourceType: 'user',
+        resourceId: user.id,
+        metadata: { channel },
+      })
+      return Ok(sortie)
+    }
 
     // ---- ② politique d'émission
     const now = this.clock.now()
@@ -101,7 +131,11 @@ export class RequestPasswordReset implements UseCase<
         action: 'identity.password_reset.throttled',
         resourceType: 'user',
         resourceId: user.id,
-        metadata: { reason: decision.reason, retryAfterSeconds: decision.retryAfterSeconds },
+        metadata: {
+          channel,
+          reason: decision.reason,
+          retryAfterSeconds: decision.retryAfterSeconds,
+        },
       })
       return Ok(sortie)
     }
@@ -116,8 +150,8 @@ export class RequestPasswordReset implements UseCase<
           id: otpId,
           userId: user.id,
           purpose: PURPOSE,
-          channel: 'sms',
-          recipient: user.phone!,
+          channel,
+          recipient,
           codeHash: this.codes.digest(code),
           maxAttempts: policy.maxAttempts,
           expiresAt: new Date(now.getTime() + policy.ttlSeconds * 1000),
@@ -128,25 +162,24 @@ export class RequestPasswordReset implements UseCase<
         tx
       )
     })
-    // Demande concurrente pour le même compte : l'autre a gagné, son SMS part.
+    // Demande concurrente pour le même compte : l'autre a gagné, son message part.
     if (!insere) return Ok(sortie)
 
-    // ---- ④ SMS
-    const message = SmsTemplates.passwordResetCode({
-      brand: this.config.brand,
-      code,
-      ttlMinutes: Math.ceil(policy.ttlSeconds / 60),
-      locale: user.locale,
-    })
-    const issue = await this.sms.send({
+    // ---- ④ remise par le canal choisi
+    const issue = await this.notifier.deliver({
       organizationId: user.organizationId,
       recipientUserId: user.id,
-      to: user.phone,
-      body: message.body,
-      journalBody: message.journalBody,
-      templateCode: message.templateCode,
+      to: recipient,
+      toName: user.fullName,
+      message: ChannelMessages.passwordResetCode(channel, {
+        brand: this.config.brand,
+        fullName: user.fullName,
+        code,
+        ttlMinutes: Math.ceil(policy.ttlSeconds / 60),
+        locale: user.locale,
+      }),
       dedupKey: `otp:${otpId}`,
-      payload: { otpId, purpose: PURPOSE },
+      payload: { otpId, purpose: PURPOSE, channel },
     })
 
     if (issue.status === 'sent') {
@@ -165,8 +198,9 @@ export class RequestPasswordReset implements UseCase<
       resourceId: user.id,
       metadata: {
         otpId,
-        recipient: maskPhone(user.phone),
-        sms: issue.status,
+        channel,
+        recipient: channel === 'email' ? maskEmail(recipient) : maskPhone(recipient),
+        delivery: issue.status,
         ...(issue.status === 'failed' ? { errorCode: issue.errorCode } : {}),
       },
     })

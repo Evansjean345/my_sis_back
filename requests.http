@@ -851,8 +851,20 @@ DELETE {{api}}/admin/drivers/{{adminDriverId}}
 Authorization: Bearer {{superToken}}
 
 
-### ═════════════════════════════ MOT DE PASSE OUBLIÉ (OTP SMS — Twilio)
-### 1. demander un code — toujours 202, même corps que le numéro existe ou non
+### ═════════════════════════════ MOT DE PASSE OUBLIÉ (code par SMS — Twilio — ou e-mail — Brevo)
+### 1a. code par E-MAIL (identifiant e-mail → canal e-mail par défaut) — toujours 202
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "identifier": "evans@sisbm.ci", "channel": "email" }
+
+### 1b. code par SMS au téléphone du compte, en saisissant son e-mail
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "identifier": "evans@sisbm.ci", "channel": "sms" }
+
+### 1c. format de la première version (toujours accepté) : téléphone → SMS
 POST {{api}}/auth/password/forgot
 Content-Type: application/json
 
@@ -862,14 +874,14 @@ Content-Type: application/json
 POST {{api}}/auth/password/verify
 Content-Type: application/json
 
-{ "phone": "0161899990", "code": "123456" }
+{ "identifier": "evans@sisbm.ci", "code": "123456" }
 
 ### 3. réinitialiser — 204, toutes les sessions sont révoquées
 POST {{api}}/auth/password/reset
 Content-Type: application/json
 
 {
-  "phone": "+2250161899990",
+  "identifier": "evans@sisbm.ci",
   "code": "123456",
   "password": "NouveauMotDePasse2026!",
   "password_confirmation": "NouveauMotDePasse2026!"

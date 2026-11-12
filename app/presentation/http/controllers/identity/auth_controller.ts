@@ -10,6 +10,7 @@ import {
   forgotPasswordValidator,
   loginValidator,
   resetPasswordValidator,
+  toAccountIdentifier,
   verifyResetCodeValidator,
 } from '#presentation/http/validators/identity/auth_validators'
 import { RequestPasswordReset } from '#application/identity/use_cases/request_password_reset'
@@ -151,38 +152,45 @@ export default class AuthController {
   }
 
   // =========================================================================
-  //  MOT DE PASSE OUBLIÉ — OTP par SMS (Twilio)
+  //  MOT DE PASSE OUBLIÉ — code par SMS (Twilio) ou e-mail (Brevo)
   // =========================================================================
 
   /**
-   * POST /api/v1/auth/password/forgot — body : { phone }
+   * POST /api/v1/auth/password/forgot
+   * body : { identifier: "<e-mail ou téléphone>", channel?: "sms" | "email" }
+   *        (`{ phone }` de la première version reste accepté)
    *
-   * Toujours 202, avec le même corps : la réponse ne dit jamais si le numéro
-   * correspond à un compte. Le front affiche « si un compte existe, un code
-   * vient d'être envoyé » et propose le renvoi après `resendAfterSeconds`.
+   * Le canal choisit l'adresse de remise PARMI CELLES DU COMPTE : saisir son
+   * e-mail et demander `channel: "sms"` envoie le code au téléphone du compte.
+   *
+   * Toujours 202, avec le même corps : la réponse ne dit jamais si
+   * l'identifiant correspond à un compte. Le front propose le renvoi après
+   * `resendAfterSeconds`.
    */
   async forgotPassword({ request, response }: HttpContext) {
-    const { phone } = await request.validateUsing(forgotPasswordValidator)
+    const payload = await request.validateUsing(forgotPasswordValidator)
+    const identifier = toAccountIdentifier(payload)
     // Le cas d'usage ne renvoie jamais d'erreur métier (non-divulgation).
     const delais = unwrap(
       await this.requestPasswordReset.execute({
-        phone,
+        identifier,
+        channel: payload.channel,
         ip: request.ip(),
         userAgent: request.header('user-agent') ?? null,
         requestId: request.id(),
       })
     )
+    const par = delais.channel === 'email' ? 'par e-mail' : 'par SMS'
     return response.accepted({
       data: {
-        message:
-          'Si un compte actif correspond à ce numéro, un code vient de lui être envoyé par SMS.',
+        message: `Si un compte actif correspond, un code vient de lui être envoyé ${par}.`,
         ...delais,
       },
     })
   }
 
   /**
-   * POST /api/v1/auth/password/verify — body : { phone, code }
+   * POST /api/v1/auth/password/verify — body : { identifier, code }
    *
    * Vérifie le code SANS le consommer (écran suivant : nouveau mot de passe).
    * Chaque échec est décompté : 422 E_OTP_INVALID { remainingAttempts },
@@ -190,14 +198,17 @@ export default class AuthController {
    */
   async verifyResetCode({ request, response }: HttpContext) {
     const payload = await request.validateUsing(verifyResetCodeValidator)
-    const r = await this.verifyPasswordResetCode.execute(payload)
+    const r = await this.verifyPasswordResetCode.execute({
+      identifier: toAccountIdentifier(payload),
+      code: payload.code,
+    })
     if (!r.ok) return response.status(r.error.httpStatus).send({ error: r.error.toJSON() })
     return response.ok({ data: { valid: true, expiresAt: r.value.expiresAt.toISOString() } })
   }
 
   /**
    * POST /api/v1/auth/password/reset
-   * body : { phone, code, password, password_confirmation }
+   * body : { identifier, code, password, password_confirmation }
    *
    * 204 : mot de passe changé, verrouillage levé, TOUTES les sessions
    * révoquées — l'utilisateur se reconnecte par `/auth/login`.
@@ -205,7 +216,7 @@ export default class AuthController {
   async resetPassword({ request, response }: HttpContext) {
     const payload = await request.validateUsing(resetPasswordValidator)
     const r = await this.resetPasswordUseCase.execute({
-      phone: payload.phone,
+      identifier: toAccountIdentifier(payload),
       code: payload.code,
       newPassword: payload.password,
       ip: request.ip(),

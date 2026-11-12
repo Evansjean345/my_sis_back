@@ -31,6 +31,25 @@ Destructuration du type OTP pour identifier les règles de sécurité :
 export const OTP_PURPOSES = ['password_reset'] as const //password reset
 export type OtpPurpose = (typeof OTP_PURPOSES)[number]
 
+/**
+ * Canaux de remise d'un code : SMS (Twilio) ou e-mail (Brevo). Le canal est
+ * CHOISI par l'utilisateur à la demande ; un code reste unique par compte et
+ * par usage, quel que soit le canal.
+ */
+export const OTP_CHANNELS = ['sms', 'email'] as const
+export type OtpChannel = (typeof OTP_CHANNELS)[number]
+
+/**
+ * Identifiant saisi pour retrouver un compte sans session. Indépendant du
+ * canal : on peut saisir son e-mail et recevoir le code par SMS.
+ */
+export type AccountIdentifier = { kind: 'email'; value: string } | { kind: 'phone'; value: string }
+
+/** Canal par défaut : celui de l'identifiant saisi. */
+export function defaultChannelFor(identifier: AccountIdentifier): OtpChannel {
+  return identifier.kind === 'email' ? 'email' : 'sms'
+}
+
 //Otp policy configuration
 export interface OtpPolicyConfig {
   /** Nombre de chiffres du code. */

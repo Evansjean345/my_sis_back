@@ -436,6 +436,12 @@ export default class UserController {
     return ctx.response.ok({ data: utilisateur.serialize() })
   }
 
+  /*
+  Fonction de suppression logique d'un utilisateur 
+  changer le statut de supended de l'utilisateuur
+  */
+  /*
+
   private async supprimer(ctx: HttpContext, scope: TenantScope) {
     const contexte = toExecutionContext(ctx)
     const utilisateur = await this.trouver(ctx, scope)
@@ -454,6 +460,32 @@ export default class UserController {
     utilisateur.deletedAt = DateTime.now()
     utilisateur.status = 'suspended'
     await utilisateur.save()
+    await UserModel.revokeAllTokens(utilisateur.id)
+
+    return ctx.response.noContent()
+  }
+*/
+
+  /*
+  adaptation de la fonction de suppression logique d'un utilisateur pour l'administrateur
+  supprimer directement l'utilisateur sans changer le statut de suppression de l'utilisateur.
+  */
+  private async supprimer(ctx: HttpContext, scope: TenantScope) {
+    const contexte = toExecutionContext(ctx)
+    const utilisateur = await this.trouver(ctx, scope)
+    if (!utilisateur) return this.introuvable(ctx)
+
+    if (utilisateur.id === contexte.actorId) {
+      return ctx.response.conflict({
+        error: {
+          code: 'E_SELF_DELETE',
+          message: 'Un utilisateur ne peut pas supprimer son propre compte',
+          details: {},
+        },
+      })
+    }
+
+    utilisateur.deletedAt = DateTime.now()
     await UserModel.revokeAllTokens(utilisateur.id)
 
     return ctx.response.noContent()
@@ -503,6 +535,9 @@ export default class UserController {
     return applyScope(query, scope).first()
   }
 
+  /*
+  Fonction utilitaire NOT_FOUND 
+  */
   private introuvable(ctx: HttpContext) {
     return ctx.response.notFound({
       error: { code: 'E_NOT_FOUND', message: 'Utilisateur introuvable', details: {} },

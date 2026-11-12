@@ -1,6 +1,6 @@
 import type { TransactionScope } from '#application/ports'
 import type { AssignableRole } from '#domain/identity/role_policy'
-import type { OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
+import type { OtpChannel, OtpIssuanceStats, OtpPurpose } from '#domain/identity/otp_policy'
 
 /**
  * =========================================================================
@@ -125,6 +125,8 @@ export interface UserContactReader {
    * L'index unique `uq_users_phone` garantit qu'il y en a au plus un.
    */
   findActiveByPhone(phone: string, tx?: TransactionScope): Promise<UserContact | null>
+  /** Compte ACTIF portant cet e-mail (citext, index unique `uq_users_email`). */
+  findActiveByEmail(email: string, tx?: TransactionScope): Promise<UserContact | null>
 }
 
 export interface UserAccountWriter {
@@ -148,6 +150,8 @@ export interface OtpRecord {
   id: string
   userId: string
   purpose: OtpPurpose
+  /** Canal par lequel le code a été remis (sms | email). */
+  channel: OtpChannel
   recipient: string
   codeHash: string
   attempts: number
@@ -162,7 +166,8 @@ export interface NewOtp {
   id: string
   userId: string
   purpose: OtpPurpose
-  channel: 'sms'
+  channel: OtpChannel
+  /** E.164 (sms) ou adresse e-mail (email) — `ck_otps_recipient`. */
   recipient: string
   codeHash: string
   maxAttempts: number
