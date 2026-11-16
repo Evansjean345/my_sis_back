@@ -1,0 +1,900 @@
+### SISBM CORE — Jalon 2 Phase 1
+### Recette : CRUD + commandes sur boîtier réel
+### VS Code « REST Client » ou JetBrains HTTP Client
+
+@host = http://127.0.0.1:3333
+@api = {{host}}/api/v1
+
+### ═════════════════════════════ SANTÉ
+GET {{host}}/health
+
+### ═════════════════════════════ CONNEXION
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@sisbm.ci", "password": "Sisbm2026!" }
+
+###
+@token = {{login.response.body.data.token}}
+
+### profil courant
+GET {{api}}/auth/me
+Authorization: Bearer {{token}}
+
+### rôles disponibles (alimente le formulaire de création d'utilisateur)
+# @name roles
+GET {{api}}/roles
+Authorization: Bearer {{token}}
+
+###
+@roleId = {{roles.response.body.data.0.id}}
+
+
+### ═════════════════════════════ CRUD UTILISATEURS
+
+### lister
+GET {{api}}/users?page=1&perPage=25
+Authorization: Bearer {{token}}
+
+### créer — mot de passe 12 caractères minimum
+# @name createUser
+POST {{api}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "operateur2@sisbm.ci",
+  "password": "MotDePasse2026!",
+  "fullName": "Second Operateur",
+  "phone": "+2250161899901",
+  "roleId": "{{roleId}}",
+  "status": "active"
+}
+
+###
+@userId = {{createUser.response.body.data.id}}
+
+### consulter
+GET {{api}}/users/{{userId}}
+Authorization: Bearer {{token}}
+
+### modifier
+PATCH {{api}}/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fullName": "Second Operateur SISBM" }
+
+### suspendre — révoque aussi tous ses jetons
+POST {{api}}/users/{{userId}}/suspend
+Authorization: Bearer {{token}}
+
+### changer SON mot de passe (exige le mot de passe courant)
+POST {{api}}/users/me/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "currentPassword": "Sisbm2026!",
+  "newPassword": "NouveauMotDePasse2026!",
+  "newPassword_confirmation": "NouveauMotDePasse2026!"
+}
+
+### supprimer (logique) — impossible sur son propre compte
+DELETE {{api}}/users/{{userId}}
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ CRUD VÉHICULES
+
+### lister, avec recherche floue sur l'immatriculation
+GET {{api}}/vehicles?search=1234&status=active
+Authorization: Bearer {{token}}
+
+### créer — seuil de vitesse PAR VÉHICULE (règle Jalon 2)
+# @name createVehicle
+POST {{api}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "registration": "4321 ZZ 01",
+  "brand": "Toyota",
+  "model": "Land Cruiser",
+  "year": 2022,
+  "vehicleType": "truck",
+  "speedLimitKph": 90,
+  "immobilizationEnabled": true
+}
+
+###
+@vehicleId = {{createVehicle.response.body.data.id}}
+
+### consulter — inclut le boîtier monté et la dernière position
+GET {{api}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+
+### modifier le seuil de vitesse
+PATCH {{api}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "speedLimitKph": 80 }
+
+### archiver (suppression logique)
+DELETE {{api}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ CRUD BOÎTIERS
+
+### lister les boîtiers EN STOCK, non montés
+GET {{api}}/devices?unassigned=true
+Authorization: Bearer {{token}}
+
+### créer SANS synchronisation Flespi (préparation de parc)
+# @name createDevice
+POST {{api}}/devices
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "imei": "352625333222111",
+  "model": "MV730",
+  "manufacturer": "micodus",
+  "hasRelay": true,
+  "simMsisdn": "+2250161899910",
+  "syncFlespi": false
+}
+
+###
+@deviceId = {{createDevice.response.body.data.id}}
+
+### créer AVEC synchronisation Flespi
+### Micodus : ident flespi = « 0 » + ID imprimé sur l'étiquette (terminalId), PAS l'IMEI.
+### Le type « Micodus MV730 » est résolu dans le protocole du canal (FLESPI_CHANNEL_ID).
+### En cas de doute sur l'ident : GET /flespi/channels/:id/idents une fois le boîtier branché.
+POST {{api}}/devices
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "imei": "864356060535359",
+  "terminalId": "12345678901",
+  "model": "MV730",
+  "name": "Véhicule AB-123-CD",
+  "hasRelay": true,
+  "simMsisdn": "+2250700000000",
+  "syncFlespi": true,
+  "flespiChannelId": 1442013,
+  "flespiDeviceType": "Micodus MV730"
+}
+
+### ⚠ type d'un autre protocole (350 = Concox AT6 sur canal micodus) → 422 E_FLESPI_DEVICE_TYPE_MISMATCH
+POST {{api}}/devices
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "imei": "864356060535358",
+  "terminalId": "12345678902",
+  "model": "MV730",
+  "syncFlespi": true,
+  "flespiDeviceType": "350"
+}
+
+### rattacher après coup un boîtier créé en stock (ou dont le device flespi a été recréé)
+POST {{api}}/devices/{{deviceId}}/flespi/sync
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "flespiIdent": "012345678901", "linkExisting": true }
+
+### consulter — inclut l'affectation en cours
+GET {{api}}/devices/{{deviceId}}
+Authorization: Bearer {{token}}
+
+### modifier
+PATCH {{api}}/devices/{{deviceId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "active", "simMsisdn": "+2250700000001", "name": "Véhicule AB-123-CD" }
+
+### monter sur un véhicule — affectation DATÉE
+POST {{api}}/devices/{{deviceId}}/assignment
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleId": "{{vehicleId}}", "installNotes": "Installation atelier Abidjan" }
+
+### ⚠ remonter le MÊME boîtier sur un AUTRE véhicule → 409
+### La contrainte EXCLUDE en base l'interdit (CM-01).
+POST {{api}}/devices/{{deviceId}}/assignment
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleId": "aaaaaaaa-0000-4000-8000-000000000002" }
+
+### démonter
+DELETE {{api}}/devices/{{deviceId}}/assignment
+Authorization: Bearer {{token}}
+
+### supprimer — refusé si le boîtier est encore monté (409)
+DELETE {{api}}/devices/{{deviceId}}
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ DIAGNOSTIC FLESPI
+### Interroge FLESPI directement, pas notre base.
+### Répond à : « le boîtier émet-il, ou est-ce nous qui perdons les trames ? »
+
+### dernier message chez Flespi
+GET {{api}}/devices/{{deviceId}}/telemetry
+Authorization: Bearer {{token}}
+
+### historique Flespi sur une fenêtre
+GET {{api}}/devices/{{deviceId}}/telemetry/history?from=2026-08-19T00:00:00Z&to=2026-08-19T23:59:59Z
+Authorization: Bearer {{token}}
+
+### diagnostic complet : type, protocole vs canal, ident, dernière trame, problèmes détectés
+GET {{api}}/devices/{{deviceId}}/flespi
+Authorization: Bearer {{token}}
+
+### journal flespi du device (connexions, erreurs)
+GET {{api}}/devices/{{deviceId}}/flespi/logs?count=50
+Authorization: Bearer {{token}}
+
+### dernière valeur de chaque paramètre
+GET {{api}}/devices/{{deviceId}}/flespi/telemetry
+Authorization: Bearer {{token}}
+
+### catalogue RÉEL des commandes que flespi accepte pour CE boîtier
+GET {{api}}/devices/{{deviceId}}/flespi/commands
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ CANAUX FLESPI
+
+### santé : jeton, canal configuré, broker
+GET {{api}}/flespi/health
+Authorization: Bearer {{token}}
+
+### protocoles (recherche)
+GET {{api}}/flespi/protocols?search=micodus
+Authorization: Bearer {{token}}
+
+### types de boîtiers du protocole micodus → id numérique du MV730
+GET {{api}}/flespi/protocols/micodus/device-types?search=mv730
+Authorization: Bearer {{token}}
+
+### fiche complète du type (schéma d'ident, commandes)
+GET {{api}}/flespi/protocols/micodus/device-types/Micodus%20MV730
+Authorization: Bearer {{token}}
+
+### lister les canaux
+GET {{api}}/flespi/channels
+Authorization: Bearer {{token}}
+
+### créer le canal micodus (un seul pour toute la flotte)
+# @name createChannel
+POST {{api}}/flespi/channels
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "sisbm_channel", "protocolName": "micodus" }
+
+###
+@channelId = 1442013
+
+### consulter
+GET {{api}}/flespi/channels/{{channelId}}
+Authorization: Bearer {{token}}
+
+### modifier
+PATCH {{api}}/flespi/channels/{{channelId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "messagesTtl": 86400 }
+
+### journal du canal
+GET {{api}}/flespi/channels/{{channelId}}/logs?count=50
+Authorization: Bearer {{token}}
+
+### tampon de messages (inclut les boîtiers non enregistrés)
+GET {{api}}/flespi/channels/{{channelId}}/messages?currKey=0&limit=100
+Authorization: Bearer {{token}}
+
+### connexions TCP actives
+GET {{api}}/flespi/channels/{{channelId}}/connections
+Authorization: Bearer {{token}}
+
+### idents vus sur le canal, croisés avec SISBM et flespi
+GET {{api}}/flespi/channels/{{channelId}}/idents
+Authorization: Bearer {{token}}
+
+### supprimer — refusé (409) pour le canal de production sans ?force=true
+DELETE {{api}}/flespi/channels/{{channelId}}
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ COMMANDES SUR BOÎTIER RÉEL
+### ⚠ Ces appels agissent sur du MATÉRIEL installé dans un véhicule.
+### `reason` est obligatoire partout : c'est la pièce d'audit.
+
+### catalogue des commandes disponibles
+GET {{api}}/devices/{{deviceId}}/commands
+Authorization: Bearer {{token}}
+
+### historique des commandes émises
+GET {{api}}/devices/{{deviceId}}/commands/history
+Authorization: Bearer {{token}}
+
+### réconcilier les commandes en vol avec flespi (acknowledged / failed / expired)
+POST {{api}}/devices/{{deviceId}}/commands/sync
+Authorization: Bearer {{token}}
+
+### résultats bruts flespi + file d'attente
+GET {{api}}/devices/{{deviceId}}/commands/results
+Authorization: Bearer {{token}}
+
+### commande flespi brute, validée contre le catalogue du boîtier — ex. lire l'APN
+POST {{api}}/devices/{{deviceId}}/commands/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "setting.network.get", "properties": {}, "reason": "Vérification APN recette" }
+
+### mode instantané (boîtier connecté requis) — intervalle de suivi 30 s en mouvement, 10 min à l'arrêt
+POST {{api}}/devices/{{deviceId}}/commands/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "setting.working_mode.set",
+  "properties": { "mode": { "type": 1, "time_move": 30, "time_stat": 600 } },
+  "reason": "Recette suivi temps réel",
+  "mode": "instant"
+}
+
+### ⚠ réglage critique sans confirm → 422 E_CONFIRMATION_REQUIRED
+POST {{api}}/devices/{{deviceId}}/commands/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "setting.server.set",
+  "properties": { "mode": { "type": 1, "domain": "ch1442013.flespi.gw", "port": 39142 } },
+  "reason": "Reprogrammation serveur"
+}
+
+
+### ── DIAGNOSTIC (sans risque — commencer par là) ──────────────
+
+### R1 — forcer le boîtier à émettre position et état
+POST {{api}}/devices/{{deviceId}}/commands/request-status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Verification de la remontee apres installation" }
+
+### R2 — redémarrer le boîtier
+POST {{api}}/devices/{{deviceId}}/commands/reboot
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Boitier muet depuis 2 heures" }
+
+
+### ── SUIVI RENFORCÉ ───────────────────────────────────────────
+
+### T1 "1" — activer l'envoi fréquent de positions
+POST {{api}}/devices/{{deviceId}}/commands/start-tracking
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Suivi renforce pendant le convoi Abidjan-Bouake" }
+
+### T1 "0" — revenir au rythme normal
+POST {{api}}/devices/{{deviceId}}/commands/stop-tracking
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Fin du convoi" }
+
+
+### ── ALARME EMBARQUÉE ─────────────────────────────────────────
+
+### S10 "1" — armer (vibration, remorquage)
+POST {{api}}/devices/{{deviceId}}/commands/arm
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Vehicule stationne pour le week-end" }
+
+### S10 "0" — désarmer
+POST {{api}}/devices/{{deviceId}}/commands/disarm
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Reprise de service lundi matin" }
+
+
+### ── SORTIE AUXILIAIRE ────────────────────────────────────────
+
+### S11 — activer la sortie 1 (sirène, buzzer)
+POST {{api}}/devices/{{deviceId}}/commands/set-output
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Test de la sirene en atelier", "data": "0,1" }
+
+### S11 — désactiver
+POST {{api}}/devices/{{deviceId}}/commands/set-output
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Fin du test sirene", "data": "0,0" }
+
+
+### ── CONFIGURATION (sensible) ─────────────────────────────────
+
+### A1 — numéro administrateur (sans le +)
+POST {{api}}/devices/{{deviceId}}/commands/set-admin-number
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Mise a jour du numero du responsable de flotte", "data": "2250707070707" }
+
+### B1 — changer le mot de passe boîtier : "ancien,nouveau"
+POST {{api}}/devices/{{deviceId}}/commands/change-password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Durcissement securite parc", "data": "123456,654321" }
+
+### B2 — réinitialiser
+POST {{api}}/devices/{{deviceId}}/commands/reset-password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Mot de passe boitier perdu", "data": "123456" }
+
+### C1 — APN. ⚠ Une valeur erronée rend le boîtier INJOIGNABLE.
+POST {{api}}/devices/{{deviceId}}/commands/set-apn
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Passage operateur Orange CI", "data": "orange.ci,orange,orange" }
+
+### ⚠ sans `data` → 422 E_MISSING_COMMAND_DATA
+### Le garde-fou : un APN vide rendrait le boîtier irrécupérable.
+POST {{api}}/devices/{{deviceId}}/commands/set-apn
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Test du garde-fou parametre manquant" }
+
+
+### ── GÉOFENCES EMBARQUÉES (à valider Phase 2) ─────────────────
+
+### G1 — "<id>,<type>,<lat>,<lng>,<rayon_m>"
+POST {{api}}/devices/{{deviceId}}/commands/add-geofence
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Zone depot port Abidjan", "data": "1,1,5.359952,-4.008256,500" }
+
+### G2 — suppression par id
+POST {{api}}/devices/{{deviceId}}/commands/remove-geofence
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Zone depot obsolete", "data": "1" }
+
+
+### ── COUPURE MOTEUR : REFUSÉE ICI ─────────────────────────────
+### Renvoie 403 E_USE_IMMOBILIZATION_ENDPOINT.
+### Cette route existe pour donner un message explicite plutôt qu'un 404.
+
+POST {{api}}/devices/{{deviceId}}/commands/cut-engine
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Tentative de contournement du garde-fou" }
+
+# @name immobilization
+### ✅ La vraie voie : contrôle de vitesse, fraîcheur de position, traçabilité
+### ⚠ Le véhicule doit avoir immobilization_enabled = true, un boîtier avec
+### relais monté, et une position de moins de 2 minutes.
+POST {{api}}/security/immobilizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "vehicleId": "aaaaaaaa-0000-4000-8000-000000000001",
+  "reason": "Vehicule signale vole par le client"
+}
+
+
+###
+@commandId = {{immobilization.response.body.data.commandId}}
+
+### La demande ci-dessus émet déjà la coupure (S20 1,1) : plus de double validation.
+### RELANCE uniquement si l'émission n'a pas pu démarrer (commande restée `approved`).
+### 2e contrôle de vitesse avant émission. Exige IMMOBILIZATION_ENABLED=true.
+POST {{api}}/security/immobilizations/{{commandId}}/dispatch
+Authorization: Bearer {{token}}
+
+### RÉTABLISSEMENT — demande + émission (S20 0,0) en un appel
+### Pas de contrôle de vitesse : rendre l'alimentation est l'acte sûr.
+POST {{api}}/security/restorations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleId": "{{vehicleId}}", "reason": "Restitution du vehicule au client" }
+
+### suivi : statut de la commande et résultat renvoyé par le boîtier
+GET {{api}}/devices/{{deviceId}}/commands/history
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/devices/{{deviceId}}/commands/sync
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ LIMITATION DE DÉBIT
+### 10 requêtes/min sur /devices/*/commands et /security/*.
+### Répéter cet appel plus de 10 fois → 429.
+POST {{api}}/devices/{{deviceId}}/commands/request-status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Test de la limitation de debit" }
+
+
+### ═════════════════════════════ JALON 2 · PHASE 5 — ORGANISATIONS
+### Réservé à l'exploitant plateforme (rôle super_admin, joker `*`).
+### Compte de recette : database/seeders/02_super_admin_seeder.ts
+
+# @name loginSuper
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "superadmin@sisbm.ci", "password": "SuperAdmin2026!" }
+
+###
+@superToken = {{loginSuper.response.body.data.token}}
+
+### créer une organisation ET son premier administrateur (une transaction)
+# @name createOrg
+POST {{api}}/organizations
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{
+  "code": "transports-kone",
+  "name": "Transports Koné",
+  "contactEmail": "contact@kone.ci",
+  "contactPhone": "+2250700000001",
+  "countryCode": "CI",
+  "timezone": "Africa/Abidjan",
+  "currency": "XOF",
+  "settings": { "maxVehicles": 50 },
+  "admin": {
+    "email": "direction@kone.ci",
+    "password": "MotDePasse2026!",
+    "fullName": "Directeur Koné",
+    "phone": "+2250700000002"
+  }
+}
+
+###
+@orgId = {{createOrg.response.body.data.organization.id}}
+
+### lister / rechercher
+GET {{api}}/organizations?search=kone&isActive=true
+Authorization: Bearer {{superToken}}
+
+### consulter (avec compteurs utilisateurs / véhicules)
+GET {{api}}/organizations/{{orgId}}
+Authorization: Bearer {{superToken}}
+
+### modifier — le `code` n'est pas modifiable
+PATCH {{api}}/organizations/{{orgId}}
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "name": "Transports Koné & Fils", "contactPhone": "+2250700000003" }
+
+### rôles utilisables dans l'organisation (drapeau `assignable`)
+# @name orgRoles
+GET {{api}}/organizations/{{orgId}}/roles
+Authorization: Bearer {{superToken}}
+
+###
+@orgRoleId = {{orgRoles.response.body.data.0.id}}
+
+### rattacher un compte à l'organisation
+POST {{api}}/organizations/{{orgId}}/users
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{
+  "email": "exploitation@kone.ci",
+  "password": "MotDePasse2026!",
+  "fullName": "Chef Exploitation Koné",
+  "roleId": "{{orgRoleId}}"
+}
+
+### comptes de l'organisation
+GET {{api}}/organizations/{{orgId}}/users?status=active
+Authorization: Bearer {{superToken}}
+
+### CONTRÔLE — un administrateur client ne voit pas les organisations → 403
+GET {{api}}/organizations
+Authorization: Bearer {{token}}
+
+
+### ═════════════════════════════ IMMOBILISATION PLANIFIÉE (migration 017)
+### Doc : docs/08-immobilisation-planifiee-et-conducteurs.md
+### Jours : 0 = dimanche … 6 = samedi. Une plage qui passe minuit = deux fenêtres.
+### Écriture : policy:write (admin). Lecture : vehicle:read.
+
+# @name createVehicleGroup
+POST {{api}}/vehicle-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Livraison de nuit" }
+
+###
+@vehicleGroupId = {{createVehicleGroup.response.body.data.id}}
+
+###
+POST {{api}}/vehicle-groups/{{vehicleGroupId}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleIds": ["{{vehicleId}}"] }
+
+# @name createSchedule
+POST {{api}}/usage-schedules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Heures de service",
+  "timezone": "Africa/Abidjan",
+  "windows": [
+    { "dayOfWeek": 1, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 2, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 3, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 4, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 5, "startTime": "06:00", "endTime": "20:00" }
+  ]
+}
+
+###
+@scheduleId = {{createSchedule.response.body.data.id}}
+
+### remplacer toute la semaine (ex. : ajout du samedi matin)
+PUT {{api}}/usage-schedules/{{scheduleId}}/windows
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "windows": [
+    { "dayOfWeek": 1, "startTime": "06:00", "endTime": "20:00" },
+    { "dayOfWeek": 6, "startTime": "07:00", "endTime": "12:00" }
+  ]
+}
+
+### rattacher des véhicules (mode allowed par défaut)
+POST {{api}}/usage-schedules/{{scheduleId}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleIds": ["{{vehicleId}}"], "mode": "allowed" }
+
+### rattacher un GROUPE de véhicules : tous ses membres, présents et futurs
+POST {{api}}/usage-schedules/{{scheduleId}}/vehicle-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleGroupIds": ["{{vehicleGroupId}}"], "mode": "allowed" }
+
+### SIMULATION : que ferait le moteur ce soir à 22 h 30 ?
+GET {{api}}/usage-schedules/{{scheduleId}}/preview?at=2026-11-03T22:30:00Z
+Authorization: Bearer {{token}}
+
+### état planifié d'un véhicule (calendriers, origine, verdict, mémoire du moteur)
+GET {{api}}/vehicles/{{vehicleId}}/schedule-status
+Authorization: Bearer {{token}}
+
+### calendriers appliqués à un groupe
+GET {{api}}/vehicle-groups/{{vehicleGroupId}}/schedules
+Authorization: Bearer {{token}}
+
+### ═════════════════════════════ IMMOBILISATION CONTRÔLÉE D'UN GROUPE (immédiate)
+### Chaque véhicule suit le chemin unitaire (CM-07 par véhicule). 100 véhicules max.
+POST {{api}}/security/vehicle-groups/{{vehicleGroupId}}/immobilizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Inventaire du parc livraison" }
+
+###
+POST {{api}}/security/vehicle-groups/{{vehicleGroupId}}/restorations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Fin de l'inventaire" }
+
+### ═════════════════════════════ CONDUCTEURS (migration 018)
+
+# @name createDriver
+POST {{api}}/drivers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "firstName": "Koffi",
+  "lastName": "Yao",
+  "phone": "+2250700000001",
+  "employeeCode": "TR-001",
+  "licenseNumber": "CI-123456",
+  "licenseCategories": ["B", "C"],
+  "licenseExpiresOn": "2029-05-31",
+  "vehicleId": "{{vehicleId}}"
+}
+
+###
+@driverId = {{createDriver.response.body.data.id}}
+
+### EXPLOITANT — conducteur SANS organisation (vivier), migration 019
+POST {{api}}/admin/drivers
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "firstName": "Ibrahim", "lastName": "Koné", "licenseNumber": "CI-900001" }
+
+### EXPLOITANT — le vivier
+GET {{api}}/admin/drivers?withoutOrganization=true
+Authorization: Bearer {{superToken}}
+
+### EXPLOITANT — rattacher un conducteur à une organisation (null = la retirer)
+PATCH {{api}}/admin/drivers/{{driverId}}
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "organizationId": "{{orgId}}" }
+
+### changer de véhicule (null = détacher)
+PUT {{api}}/drivers/{{driverId}}/vehicle
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "vehicleId": null }
+
+### conducteurs d'un véhicule
+GET {{api}}/vehicles/{{vehicleId}}/drivers
+Authorization: Bearer {{token}}
+
+### recherche : nom, matricule ou permis ; filtres statut / véhicule / groupe
+GET {{api}}/drivers?search=yao&status=active
+Authorization: Bearer {{token}}
+
+# @name createDriverGroup
+POST {{api}}/driver-groups
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Équipe de nuit", "color": "#1f4e79" }
+
+###
+@driverGroupId = {{createDriverGroup.response.body.data.id}}
+
+###
+POST {{api}}/driver-groups/{{driverGroupId}}/drivers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "driverIds": ["{{driverId}}"] }
+
+###
+GET {{api}}/drivers?driverGroupId={{driverGroupId}}
+Authorization: Bearer {{token}}
+
+### ═════════════════════════════ ADMIN — CONDUCTEUR ↔ ORGANISATION / GROUPE
+### créer en SÉLECTIONNANT une organisation
+# @name adminDriver
+POST {{api}}/admin/drivers
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "firstName": "Kouassi", "lastName": "Konan", "organizationId": "{{orgId}}", "licenseNumber": "CI-555" }
+
+###
+@adminDriverId = {{adminDriver.response.body.data.id}}
+
+### ajouter à une organisation (ou déplacer) — véhicule incompatible retiré, groupes quittés
+PUT {{api}}/admin/drivers/{{adminDriverId}}/organization
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "organizationId": "{{orgId}}" }
+
+### ajouter à un ou plusieurs groupes (même organisation que le conducteur)
+POST {{api}}/admin/drivers/{{adminDriverId}}/groups
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "driverGroupIds": ["{{driverGroupId}}"] }
+
+### groupes du conducteur
+GET {{api}}/admin/drivers/{{adminDriverId}}/groups
+Authorization: Bearer {{superToken}}
+
+### retirer d'un groupe
+DELETE {{api}}/admin/drivers/{{adminDriverId}}/groups/{{driverGroupId}}
+Authorization: Bearer {{superToken}}
+
+### retirer de l'organisation (→ vivier de l'exploitant)
+DELETE {{api}}/admin/drivers/{{adminDriverId}}/organization
+Authorization: Bearer {{superToken}}
+
+### supprimer le conducteur
+DELETE {{api}}/admin/drivers/{{adminDriverId}}
+Authorization: Bearer {{superToken}}
+
+
+### ═════════════════════════════ MOT DE PASSE OUBLIÉ (code par SMS — Twilio — ou e-mail — Brevo)
+### 1a. code par E-MAIL (identifiant e-mail → canal e-mail par défaut) — toujours 202
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "identifier": "evans@sisbm.ci", "channel": "email" }
+
+### 1b. code par SMS au téléphone du compte, en saisissant son e-mail
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "identifier": "evans@sisbm.ci", "channel": "sms" }
+
+### 1c. format de la première version (toujours accepté) : téléphone → SMS
+POST {{api}}/auth/password/forgot
+Content-Type: application/json
+
+{ "phone": "+225 01 61 89 99 90" }
+
+### 2. vérifier le code (facultatif, ne le consomme pas ; les échecs comptent)
+POST {{api}}/auth/password/verify
+Content-Type: application/json
+
+{ "identifier": "evans@sisbm.ci", "code": "123456" }
+
+### 3. réinitialiser — 204, toutes les sessions sont révoquées
+POST {{api}}/auth/password/reset
+Content-Type: application/json
+
+{
+  "identifier": "evans@sisbm.ci",
+  "code": "123456",
+  "password": "NouveauMotDePasse2026!",
+  "password_confirmation": "NouveauMotDePasse2026!"
+}
+
+### ═════════════════════════════ SOLDE SMS (super administrateur)
+### crédits plateforme + compte Twilio (solde USD, SMS du mois)
+GET {{api}}/admin/sms/balance
+Authorization: Bearer {{superToken}}
+
+### recharger les crédits plateforme (trace sms.topup)
+POST {{api}}/admin/sms/topup
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "credits": 500, "reference": "Recharge Twilio nov. 2026" }

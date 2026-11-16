@@ -1,0 +1,555 @@
+import { Ok, type DomainError, type Result } from '#domain/kernel'
+//mesures GPS/cap/vitesse/coordonnées longitude et latitude
+import { Coordinates, GpsQuality, Heading, Speed } from '#domain/measures'
+//lecture de la télemtrie comme enntité du domaine avec toutes les propreiétes de celle ci
+import { TelemetryReading } from '#domain/telemetry/entities/telemetry_reading'
+//lecture des trajets comme entité avec retour en temps réel de l'objet snaphot comme l'etat présent de celui ci
+import { Trip } from '#domain/telemetry/entities/trip'
+//objets et valeurs des principaux acteurs de la télémetrie device/deviceIdent de flespi/trajet et vehicule
+import { DeviceId, DeviceIdent, TripId, VehicleId } from '#domain/telemetry/value_objects'
+//seuil de qualité pour telemetrie
+import type { QualityThresholds } from '#domain/telemetry/services/quality_filter'
+//lecture des événements de la telemetrie grace au pattern repositiory
+import type {
+  DevicePresenceRepository,
+  IngestMessageRepository,
+  PositionRepository,
+  TripRepository,
+  VehicleLastPositionRepository,
+} from '#domain/telemetry/repositories/telemetry_repositories'
+import { UnknownDeviceError } from '#domain/telemetry/errors'
+//événements liés à la télémetrie
+import { IgnitionTurnedOff, IgnitionTurnedOn, PositionRecorded } from '#domain/telemetry/events'
+//ports applicatifs pour le cas d'uasge du contexte de la télémetrie
+import type { Clock, IdGenerator, TransactionScope, UnitOfWork, UseCase } from '#application/ports'
+//ports applicatifs liés au contexte de la télémetrie
+import type {
+  DeviceResolver,
+  RealtimeBroadcaster,
+  ResolvedDevice,
+  TelemetryFrame,
+} from '#application/telemetry/ports'
+//NB : ligne 329 à verifier avant la publication pour transactionScope
+
+//interface d'entrée
+export interface IngestTelemetryInput {
+  frames: TelemetryFrame[]
+}
+
+//interface de sortie
+export interface IngestTelemetryOutput {
+  received: number
+  persisted: number
+  rejected: number
+  unknownDevices: number
+  tripsStarted: number
+  tripsClosed: number
+  /**
+   * Trames déjà présentes (`ON CONFLICT DO NOTHING`), typiquement un rejeu de
+   * session MQTT. À distinguer d'un échec : sans cette mesure, un rejeu complet
+   * s'affiche « 0 persistée » et se lit comme une panne.
+   */
+  duplicates: number
+  /**
+   * Décompte par MOTIF de rejet (`null_island`, `invalid_fix`, `poor_hdop`,
+   * `few_satellites`, `future_timestamp`, `implausible_jump`…).
+   *
+   * Sans ce détail, le worker annonce « 6 rejetée(s) » et rien ne permet de
+   * savoir s'il faut sortir le véhicule du parking souterrain, corriger un
+   * seuil ou soupçonner le boîtier. C'est la mesure qui rend l'ingestion
+   * diagnosticable.
+   */
+  rejectedReasons: Record<string, number>
+  /**
+   * Points et clôtures livrés DANS LE DÉSORDRE (rejeu Store & Forward).
+   *
+   * Ils sont persistés dans `positions` mais écartés des agrégats du trajet.
+   * Sans ce compteur, le worker ne distingue pas « boîtier qui rattrape son
+   * retard » de « trames perdues », alors que le premier est normal au sortir
+   * d'une zone blanche.
+   */
+  tripOutOfOrder: number
+  /**
+   * Trajets clôturés par EXPIRATION : le contact OFF ne nous est jamais
+   * parvenu (perdu, ou rejoué dans le désordre et refusé). Sans cette
+   * clôture, le trajet restait ouvert indéfiniment et absorbait tous les
+   * trajets suivants du véhicule — `isStale()` existait mais n'était appelé
+   * nulle part.
+   */
+  tripsExpired: number
+  /**
+   * Boîtiers dont la présence (`devices.last_seen_at`) a avancé dans ce lot.
+   * Compté même quand aucune position n'est exploitable : c'est la preuve
+   * qu'un tracker sans fix GPS est bien en ligne.
+   */
+  presenceUpdates: number
+}
+
+//interface pour le seuil de qualité lié au service de la telemetrie
+export interface IngestSettings extends QualityThresholds {
+  backlogThresholdSeconds: number
+  tripIdleTimeoutSeconds: number
+  tripMaxDurationHours: number
+  tripMinDistanceMeters: number
+  idleSpeedThresholdKph: number
+}
+
+/**
+ * =========================================================================
+ *  CAS D'USAGE — Ingestion de trames de télémétrie
+ * =========================================================================
+ *
+ * Orchestration pure : ce cas d'usage ne DÉCIDE rien. Il résout le boîtier,
+ * délègue la qualification au domaine, persiste, ajuste le trajet et publie.
+ * Toute règle qui apparaîtrait ici serait au mauvais endroit.
+ *
+ * Traite un LOT plutôt qu'une trame unitaire : au sortir d'une zone blanche,
+ * un boîtier rejoue des centaines de points d'un coup. Une transaction pour
+ * 200 points plutôt que 200 transactions.
+ *
+ * Isolation `read committed` : les insertions sont indépendantes et la clé
+ * d'idempotence absorbe les concurrences. Le verrou consultatif ne porte que
+ * sur le trajet.
+ */
+export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, IngestTelemetryOutput> {
+  constructor(
+    private readonly unitOfWork: UnitOfWork,
+    private readonly ingestMessages: IngestMessageRepository,
+    private readonly positions: PositionRepository,
+    private readonly lastPositions: VehicleLastPositionRepository,
+    private readonly trips: TripRepository,
+    private readonly devices: DeviceResolver,
+    private readonly broadcaster: RealtimeBroadcaster,
+    private readonly clock: Clock,
+    private readonly ids: IdGenerator,
+    private readonly settings: IngestSettings,
+    /**
+     * Optionnel pour ne pas casser les assemblages existants ; branché par
+     * `sisbm:ingest`. Sans lui, un boîtier sans fix GPS reste invisible.
+     */
+    private readonly presence?: DevicePresenceRepository
+  ) {}
+
+  //implementation du pattern unitOFWork pour ce use_case
+  async execute(input: IngestTelemetryInput): Promise<Result<IngestTelemetryOutput, DomainError>> {
+    //valeur initial à 0
+    const now = this.clock.now()
+    const out: IngestTelemetryOutput = {
+      received: input.frames.length,
+      persisted: 0,
+      rejected: 0,
+      unknownDevices: 0,
+      tripsStarted: 0,
+      tripsClosed: 0,
+      duplicates: 0,
+      rejectedReasons: {},
+      tripOutOfOrder: 0,
+      tripsExpired: 0,
+      presenceUpdates: 0,
+    }
+    if (input.frames.length === 0) return Ok(out)
+
+    // ---- 1. Regrouper par boîtier : chaque boîtier a son propre trajet et son
+    //         propre point de référence pour le contrôle de plausibilité.
+    const parLot = new Map<string, TelemetryFrame[]>()
+    for (const f of input.frames) {
+      const ident = DeviceIdent.create(f.ident)
+      if (!ident.ok) {
+        this.compter(out, 'ident_invalide')
+        continue
+      }
+      const cle = ident.value.imei
+      if (!parLot.has(cle)) parLot.set(cle, [])
+      parLot.get(cle)!.push(f)
+    }
+
+    for (const [imei, frames] of parLot) {
+      const resultat = await this.ingestDevice(imei, frames, now, out)
+      if (!resultat.ok) return resultat
+    }
+
+    return Ok(out)
+  }
+
+  // -------------------------------------------------------------------------
+  //fonction d'ingestion pour le boitier
+  private async ingestDevice(
+    imei: string,
+    frames: TelemetryFrame[],
+    now: Date,
+    out: IngestTelemetryOutput
+  ): Promise<Result<void, DomainError>> {
+    const device = await this.devices.resolve(imei)
+
+    // Boîtier inconnu : la trame est journalisée mais non exploitée. Elle
+    // pourra être rejouée après enregistrement du boîtier — d'où l'intérêt
+    // de conserver `ingest_messages`.
+    if (!device) {
+      out.unknownDevices += frames.length
+      await this.journaliserInconnues(imei, frames)
+      return Ok(undefined)
+    }
+
+    // Chronologie stricte : le Store & Forward ne garantit pas l'ordre.
+    frames.sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime())
+
+    /**
+     * Présence AVANT le filtre qualité : toute trame d'un boîtier connu prouve
+     * qu'il est en ligne, même sans fix GPS ou en différé. Placée ici, elle
+     * s'exécute aussi quand aucune lecture n'est exploitable (retour anticipé
+     * plus bas) — exactement le cas d'un véhicule garé sous un toit.
+     */
+    await this.majPresence(imei, device, frames, now, out)
+
+    const dernierFix = await this.positions.findLastValidFix(DeviceId.from(device.deviceId))
+    let reference = dernierFix
+      ? {
+          coordinates: Coordinates.trusted(dernierFix.latitude, dernierFix.longitude),
+          recordedAt: dernierFix.recordedAt,
+        }
+      : null
+
+    const lectures: TelemetryReading[] = []
+    for (const frame of frames) {
+      const lecture = this.qualifier(frame, device, reference, now)
+      if (!lecture) {
+        this.compter(out, 'mesure_hors_domaine')
+        continue
+      }
+      lectures.push(lecture)
+      // Seul un point VALIDE devient la nouvelle référence : sinon une position
+      // aberrante deviendrait le repère et rejetterait les points corrects.
+      if (lecture.isValid) {
+        reference = { coordinates: lecture.coordinates, recordedAt: lecture.recordedAt }
+      }
+    }
+    if (lectures.length === 0) return Ok(undefined)
+
+    return this.unitOfWork.run(async (tx) => {
+      // ---- Journal des trames brutes
+      for (const f of frames) {
+        await this.ingestMessages.record(
+          {
+            source: 'flespi',
+            externalId: f.externalId,
+            deviceIdent: imei,
+            deviceId: device.deviceId,
+            payload: f.raw,
+            receivedAt: f.receivedAt,
+          },
+          tx
+        )
+      }
+
+      // ---- Positions, par lot et idempotentes
+      const inserees = await this.positions.insertBatch(
+        lectures.map((l) => l.toPersistence()),
+        tx
+      )
+      out.persisted += inserees
+      // Écart entre lignes soumises et lignes écrites = doublons ignorés par
+      // `ON CONFLICT DO NOTHING`, donc un rejeu, pas un échec.
+      out.duplicates += Math.max(0, lectures.length - inserees)
+      for (const l of lectures) {
+        if (!l.isValid) this.compter(out, l.invalidReason ?? 'inconnu')
+      }
+
+      // ---- État courant : uniquement le dernier point temps réel
+      const live = lectures.filter((l) => l.isLive)
+      const dernier = live.at(-1)
+
+      // `vehicle_last_positions` est indexée PAR VÉHICULE : un boîtier en
+      // stock, ou installé mais pas encore rattaché, n'y a pas sa place.
+      // Sans cette garde, une seule trame d'un boîtier non affecté fait
+      // échouer la transaction et donc TOUT le lot.
+      if (dernier && device.vehicleId) {
+        await this.lastPositions.upsert(dernier.toPersistence(), tx)
+      }
+
+      // ---- Trajets
+      if (device.vehicleId) {
+        await this.majTrajet(device, lectures, tx, out)
+      }
+
+      // ---- Événements de domaine → outbox, publiés après COMMIT
+      if (dernier) {
+        tx.collect([
+          new PositionRecorded(device.deviceId, {
+            organizationId: device.organizationId,
+            vehicleId: device.vehicleId,
+            recordedAt: dernier.recordedAt.toISOString(),
+            latitude: dernier.coordinates.latitude,
+            longitude: dernier.coordinates.longitude,
+            speedKph: dernier.speed.kph,
+            ignition: dernier.ignitionState,
+          }),
+        ])
+      }
+
+      for (const f of frames) {
+        await this.ingestMessages.markProcessed(f.externalId, f.receivedAt, tx)
+      }
+
+      // ---- Diffusion temps réel, hors transaction critique
+      if (dernier) {
+        await this.broadcaster.publishPosition(device.organizationId, {
+          vehicleId: device.vehicleId,
+          deviceId: device.deviceId,
+          latitude: dernier.coordinates.latitude,
+          longitude: dernier.coordinates.longitude,
+          speedKph: dernier.speed.kph,
+          ignition: dernier.ignitionState,
+          recordedAt: dernier.recordedAt.toISOString(),
+        })
+      }
+
+      return Ok(undefined)
+    })
+  }
+
+  // -------------------------------------------------------------------------
+
+  /**
+   * « Vu pour la dernière fois » + diffusion de l'état du boîtier.
+   *
+   * Écriture courte, hors de la transaction des positions : un lot sans
+   * lecture exploitable n'ouvre pas de transaction, mais met quand même la
+   * présence à jour. Une erreur est propagée (base indisponible ⇒ réessai par
+   * le worker), comme pour le reste de l'ingestion.
+   */
+  private async majPresence(
+    ident: string,
+    device: ResolvedDevice,
+    frames: TelemetryFrame[],
+    now: Date,
+    out: IngestTelemetryOutput
+  ): Promise<void> {
+    if (!this.presence || frames.length === 0) return
+
+    // La plus récemment REÇUE : c'est elle qui décrit l'état actuel du lien.
+    const derniere = frames.reduce((a, b) =>
+      b.receivedAt.getTime() >= a.receivedAt.getTime() ? b : a
+    )
+
+    const avance = await this.presence.touch({
+      deviceId: device.deviceId,
+      seenAt: derniere.receivedAt,
+      gsmSignal: derniere.gsmSignal,
+      batteryPct: derniere.batteryPct,
+    })
+    if (!avance) return
+    out.presenceUpdates += 1
+
+    const retardMs = now.getTime() - derniere.recordedAt.getTime()
+    await this.broadcaster.publishDeviceStatus?.(device.organizationId, {
+      deviceId: device.deviceId,
+      vehicleId: device.vehicleId,
+      ident,
+      lastSeenAt: derniere.receivedAt.toISOString(),
+      lastRecordedAt: derniere.recordedAt.toISOString(),
+      hasFix: derniere.isValidFix,
+      delayed: retardMs > this.settings.backlogThresholdSeconds * 1000,
+      ignition: derniere.ignition,
+      gsmSignal: derniere.gsmSignal,
+      batteryPct: derniere.batteryPct,
+    })
+  }
+
+  /** Incrémente le total de rejets ET le compteur du motif. */
+  private compter(out: IngestTelemetryOutput, motif: string): void {
+    out.rejected += 1
+    out.rejectedReasons[motif] = (out.rejectedReasons[motif] ?? 0) + 1
+  }
+
+  //donnée non imcompatible mais qualifiée pour etre utilisé par le système
+  private qualifier(
+    frame: TelemetryFrame,
+    device: { deviceId: string; organizationId: string; vehicleId: string | null },
+    reference: { coordinates: Coordinates; recordedAt: Date } | null,
+    now: Date
+  ): TelemetryReading | null {
+    const coords = Coordinates.create(frame.latitude, frame.longitude)
+    const speed = Speed.fromKph(Math.max(0, frame.speedKph ?? 0))
+    const ident = DeviceIdent.create(frame.ident)
+    if (!coords.ok || !speed.ok || !ident.ok) return null
+
+    const heading = frame.headingDeg === null ? null : Heading.fromDegrees(frame.headingDeg)
+
+    return TelemetryReading.qualify(
+      {
+        organizationId: device.organizationId,
+        deviceId: DeviceId.from(device.deviceId),
+        vehicleId: device.vehicleId ? VehicleId.from(device.vehicleId) : null,
+        ident: ident.value,
+        recordedAt: frame.recordedAt,
+        receivedAt: frame.receivedAt,
+        coordinates: coords.value,
+        speed: speed.value,
+        heading: heading && heading.ok ? heading.value : null,
+        quality: GpsQuality.create({
+          hdop: frame.hdop,
+          satellites: frame.satellites,
+          isValidFix: frame.isValidFix,
+        }),
+        altitudeM: frame.altitudeM,
+        ignition: frame.ignition,
+        movement: frame.movement,
+        gsmSignal: frame.gsmSignal,
+        batteryPct: frame.batteryPct,
+        externalVoltageV: frame.externalVoltageV,
+        source: 'flespi',
+        raw: frame.raw,
+      },
+      reference,
+      this.settings,
+      this.settings.backlogThresholdSeconds,
+      now
+    )
+  }
+
+  /**
+   * Reconstitution du trajet.
+   *
+   * Le trajet ouvre sur un contact ON et clôt sur un contact OFF. Les positions
+   * hors trajet — contact inconnu, véhicule non affecté — sont historisées sans
+   * rattachement : elles restent consultables sans fausser les kilométrages.
+   */
+  private async majTrajet(
+    device: { deviceId: string; organizationId: string; vehicleId: string | null },
+    lectures: TelemetryReading[],
+    //tx: import('#application/ports').TransactionScope,
+    tx: TransactionScope,
+    out: IngestTelemetryOutput
+  ): Promise<void> {
+    const vehicleId = VehicleId.from(device.vehicleId!)
+    const now = this.clock.now()
+    let trip = await this.trips.findOpenByVehicle(vehicleId, tx)
+
+    for (const l of lectures) {
+      if (!l.countsForTrip) continue
+
+      if (l.ignitionState === 'on') {
+        /**
+         * Trajet ouvert depuis trop longtemps : son contact OFF est perdu.
+         * On le clôt sur son DERNIER POINT — jamais sur `now`, qui produirait
+         * une durée incluant l'immobilisation — puis on en ouvre un nouveau.
+         */
+        if (trip && trip.isStale(now, this.settings.tripMaxDurationHours)) {
+          const expire = trip.close({
+            at: trip.lastPointAt,
+            reason: 'timeout',
+            minDistanceMeters: this.settings.tripMinDistanceMeters,
+          })
+          if (expire.ok) {
+            await this.trips.save(trip, tx)
+            tx.collect(trip.pullDomainEvents())
+            out.tripsClosed += 1
+            out.tripsExpired += 1
+            trip = null
+          }
+        }
+
+        if (!trip) {
+          trip = Trip.start({
+            id: TripId.from(this.ids.generate()),
+            organizationId: device.organizationId,
+            vehicleId,
+            deviceId: DeviceId.from(device.deviceId),
+            at: l.recordedAt,
+            location: l.coordinates,
+            speed: l.speed,
+          })
+          out.tripsStarted += 1
+          tx.collect([
+            new IgnitionTurnedOn(device.deviceId, {
+              vehicleId: device.vehicleId,
+              at: l.recordedAt.toISOString(),
+            }),
+          ])
+        } else {
+          // Résultat TRAITÉ : un point antérieur au dernier point est refusé
+          // par l'agrégat. L'ignorer laissait croire à une accumulation
+          // réussie et masquait les rejeux.
+          const ajout = trip.addPosition({
+            at: l.recordedAt,
+            location: l.coordinates,
+            speed: l.speed,
+            idleThresholdKph: this.settings.idleSpeedThresholdKph,
+          })
+          if (!ajout.ok) out.tripOutOfOrder += 1
+        }
+        continue
+      }
+
+      if (l.ignitionState === 'off' && trip) {
+        const ajout = trip.addPosition({
+          at: l.recordedAt,
+          location: l.coordinates,
+          speed: l.speed,
+          //seuil de ralenti en kph
+          idleThresholdKph: this.settings.idleSpeedThresholdKph,
+        })
+        if (!ajout.ok) out.tripOutOfOrder += 1
+
+        /**
+         * Contact OFF plus ANCIEN que le dernier point : le trajet reste
+         * OUVERT. Le fermer sur cette date produirait `ended_at < started_at`
+         * — la ligne que PostgreSQL refusait, qui bloquait toute l'ingestion.
+         * Il sera clôturé par le prochain OFF cohérent, ou par l'expiration
+         * (`isStale` / TRIP_MAX_DURATION_HOURS).
+         */
+        const cloture = trip.close({
+          at: l.recordedAt,
+          reason: 'ignition_off',
+          minDistanceMeters: this.settings.tripMinDistanceMeters,
+        })
+        if (!cloture.ok) {
+          out.tripOutOfOrder += 1
+          continue
+        }
+
+        await this.trips.save(trip, tx)
+        tx.collect(trip.pullDomainEvents())
+        tx.collect([
+          new IgnitionTurnedOff(device.deviceId, {
+            vehicleId: device.vehicleId,
+            at: l.recordedAt.toISOString(),
+          }),
+        ])
+        out.tripsClosed += 1
+        trip = null
+      }
+    }
+
+    if (trip) {
+      await this.trips.save(trip, tx)
+      tx.collect(trip.pullDomainEvents())
+    }
+  }
+
+  //enregistrement des trames inconnues dans out_messages
+  private async journaliserInconnues(imei: string, frames: TelemetryFrame[]): Promise<void> {
+    await this.unitOfWork.run(async (tx) => {
+      for (const f of frames) {
+        await this.ingestMessages.record(
+          {
+            source: 'flespi',
+            externalId: f.externalId,
+            deviceIdent: imei,
+            deviceId: null,
+            payload: f.raw,
+            receivedAt: f.receivedAt,
+          },
+          tx
+        )
+        await this.ingestMessages.markRejected(
+          f.externalId,
+          f.receivedAt,
+          new UnknownDeviceError(imei).message,
+          tx
+        )
+      }
+      return Ok(undefined)
+    })
+  }
+}
