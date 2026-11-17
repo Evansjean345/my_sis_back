@@ -842,7 +842,7 @@ export default class DeviceController {
 
     // Suppression définitive de l'enregistrement en base de données
     await device.delete()
-
+    await device.save()
     // Supprimer le cache du boîtier
     await this.invalider(device)
 
