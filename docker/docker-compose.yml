@@ -12,29 +12,6 @@
 #  Plus simple : utiliser les scripts npm — npm run docker:up
 # =============================================================================
 
-# Réglages communs aux processus de fond (ingestion, outbox, planification).
-# Ils tournent sur la MÊME image que l'API, construite une seule fois.
-x-background-process: &background-process
-  image: sisbm-app:latest
-  pull_policy: never # image locale, construite par le service api
-  restart: unless-stopped
-  env_file: ../.env
-  environment:
-    DB_HOST: postgres
-    REDIS_HOST: redis
-    RUN_MIGRATIONS: 'false'
-  # La sonde HTTP du Dockerfile (/health sur 3333) ne concerne que l'API :
-  # un worker n'écoute aucun port et serait déclaré « unhealthy ».
-  healthcheck:
-    disable: true
-  # Laisse le temps à l'arrêt gracieux (fin du passage en cours, pool PostgreSQL).
-  stop_grace_period: 30s
-  depends_on:
-    postgres:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
-
 services:
   postgres:
     image: postgis/postgis:16-3.4
@@ -103,7 +80,6 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       target: runtime
-    image: sisbm-app:latest # partagée avec ingest, outbox et schedules
     container_name: sisbm_api
     restart: unless-stopped
     env_file: ../.env
@@ -119,30 +95,28 @@ services:
       redis:
         condition: service_healthy
 
-  # ------------------------------------------------------ processus de fond
-  # PROCESSUS SÉPARÉS de l'API : une rafale de Store & Forward ou un pic de
-  # notifications ne doit pas dégrader le temps de réponse des tableaux de bord.
-
-  # Ingestion télémétrie : consomme le broker MQTT flespi (mqtt.flespi.io),
-  # PAS le mosquitto local. Une seule instance par défaut.
-  ingest:
-    <<: *background-process
-    container_name: sisbm_ingest
-    command: ['node', 'ace', 'sisbm:ingest']
-
-  # Outbox : remet les événements validés à leurs handlers (SMS Twilio, e-mails…).
-  # Plusieurs instances possibles (SKIP LOCKED).
-  outbox:
-    <<: *background-process
-    container_name: sisbm_outbox
-    command: ['node', 'ace', 'sisbm:outbox:dispatch', '--watch']
-
-  # Immobilisation planifiée : un passage par minute. Une seule instance agit
-  # à la fois (verrou Redis).
-  schedules:
-    <<: *background-process
-    container_name: sisbm_schedules
-    command: ['node', 'ace', 'sisbm:schedules:enforce', '--watch']
+  # Traitements asynchrones : dépilage de l'outbox, notifications, webhooks,
+  # clôture des trajets, expiration des commandes.
+  # Processus SÉPARÉ de l'API : un pic de rapports ne doit pas dégrader la
+  # latence de l'ingestion GPS.
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+    container_name: sisbm_worker
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+    command: ['node', 'ace', 'sisbm:worker']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: ['full']
 
   # ---------------------------------------------------------------- broker MQTT
   # Image OFFICIELLE Docker. MQTT 5 requis pour le TTL par message.
