@@ -626,6 +626,15 @@ export class EventSchema extends BaseModel {
   declare vehicleId: string | null
 }
 
+export class FeatureSchema extends BaseModel {
+  static $columns = ['id', 'name'] as const
+  $columns = FeatureSchema.$columns
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare name: string
+}
+
 export class GeofenceAssignmentSchema extends BaseModel {
   static $columns = ['createdAt', 'geofenceId', 'id', 'isActive', 'notifyOnEnter', 'notifyOnExit', 'severity', 'updatedAt', 'usageScheduleId', 'vehicleGroupId', 'vehicleId'] as const
   $columns = GeofenceAssignmentSchema.$columns
@@ -1014,21 +1023,17 @@ export class NotificationSchema extends BaseModel {
   declare templateCode: string | null
 }
 
-export class OfferOrganizationSchema extends BaseModel {
-  static $columns = ['assignedAt', 'assignedBy', 'offerId', 'organizationId'] as const
-  $columns = OfferOrganizationSchema.$columns
-  @column.dateTime()
-  declare assignedAt: DateTime
-  @column()
-  declare assignedBy: string | null
+export class OfferSubFeatureSchema extends BaseModel {
+  static $columns = ['offerId', 'subFeatureId'] as const
+  $columns = OfferSubFeatureSchema.$columns
   @column({ isPrimary: true })
   declare offerId: string
   @column()
-  declare organizationId: string
+  declare subFeatureId: number
 }
 
 export class OfferSchema extends BaseModel {
-  static $columns = ['code', 'createdAt', 'currency', 'deletedAt', 'description', 'features', 'gpsHistoryDays', 'id', 'launchedOn', 'maxVehicles', 'name', 'periodicity', 'price', 'status', 'updatedAt'] as const
+  static $columns = ['code', 'createdAt', 'currency', 'deletedAt', 'description', 'gpsHistoryDays', 'id', 'launchedOn', 'maxVehicles', 'name', 'periodicity', 'price', 'status', 'updatedAt'] as const
   $columns = OfferSchema.$columns
   @column()
   declare code: string
@@ -1040,8 +1045,6 @@ export class OfferSchema extends BaseModel {
   declare deletedAt: DateTime | null
   @column()
   declare description: string | null
-  @column()
-  declare features: any
   @column()
   declare gpsHistoryDays: number
   @column({ isPrimary: true })
@@ -1701,6 +1704,56 @@ export class SpatialRefSySchema extends BaseModel {
   declare srid: number
   @column()
   declare srtext: string | null
+}
+
+export class SubFeatureSchema extends BaseModel {
+  static $columns = ['featureId', 'id', 'key', 'label', 'path'] as const
+  $columns = SubFeatureSchema.$columns
+  @column()
+  declare featureId: number
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare key: string
+  @column()
+  declare label: string
+  @column()
+  declare path: string
+}
+
+export class SubscriptionSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'currency', 'deletedAt', 'endDate', 'id', 'notes', 'offerId', 'organizationId', 'reference', 'startDate', 'status', 'unitPrice', 'updatedAt', 'vehicleGroupId'] as const
+  $columns = SubscriptionSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column()
+  declare currency: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column.date()
+  declare endDate: DateTime | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare notes: string | null
+  @column()
+  declare offerId: string
+  @column()
+  declare organizationId: string
+  @column()
+  declare reference: string
+  @column.date()
+  declare startDate: DateTime
+  @column()
+  declare status: string
+  @column()
+  declare unitPrice: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare vehicleGroupId: string
 }
 
 export class TripSchema extends BaseModel {

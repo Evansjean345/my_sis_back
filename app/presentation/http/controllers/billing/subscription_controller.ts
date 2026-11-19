@@ -1,11 +1,17 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
-import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import SubscriptionModel from '#infrastructure/persistence/models/subscription_model'
 import OfferModel from '#infrastructure/persistence/models/offer_model'
 import { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
-import { vehiclesByGroup } from '#infrastructure/persistence/subscription_reads'
+import {
+  findVehicleGroup,
+  liveSubscriptionOfGroup,
+  organizationExists,
+  type SubscriptionSummaries,
+  subscriptionReferenceTaken,
+  subscriptionSummaries,
+} from '#infrastructure/persistence/subscription_reads'
 import {
   canTransition,
   type SubscriptionStatus,
@@ -20,25 +26,6 @@ import {
 } from '#presentation/http/validators/billing/subscription_validators'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 import { authorizePlatform } from '#presentation/http/support/platform_scope'
-
-/** Résumés joints à chaque souscription. */
-interface Joints {
-  organizations: Map<string, { id: string; code: string; name: string }>
-  offers: Map<
-    string,
-    {
-      id: string
-      code: string
-      name: string
-      periodicity: string
-      price: string
-      currency: string
-      status: string
-    }
-  >
-  groups: Map<string, { id: string; name: string; color: string | null }>
-  vehicles: Map<string, number>
-}
 
 const AUDITED = [
   'reference',
@@ -121,12 +108,9 @@ export default class SubscriptionController {
     await authorizePlatform(ctx)
     const champs = await ctx.request.validateUsing(createSubscriptionValidator)
 
-    const organisation = await db
-      .from('organizations')
-      .where('id', champs.organizationId)
-      .whereNull('deleted_at')
-      .first()
-    if (!organisation) return this.introuvable(ctx, 'Organisation')
+    if (!(await organizationExists(champs.organizationId))) {
+      return this.introuvable(ctx, 'Organisation')
+    }
 
     const offre = await this.offre(champs.offerId)
     if (!offre) return this.introuvable(ctx, 'Offre')
@@ -315,17 +299,12 @@ export default class SubscriptionController {
     organizationId: string,
     exceptId?: string
   ): Promise<boolean> {
-    const groupe = await db
-      .from('vehicle_groups')
-      .where('id', groupId)
-      .whereNull('deleted_at')
-      .select('id', 'organization_id', 'name')
-      .first()
+    const groupe = await findVehicleGroup(groupId)
     if (!groupe) {
       this.introuvable(ctx, 'Groupe de véhicules')
       return true
     }
-    if (groupe.organization_id !== organizationId) {
+    if (groupe.organizationId !== organizationId) {
       ctx.response.unprocessableEntity({
         error: {
           code: 'E_VEHICLE_GROUP_MISMATCH',
@@ -335,14 +314,7 @@ export default class SubscriptionController {
       })
       return true
     }
-    const query = db
-      .from('subscriptions')
-      .where('vehicle_group_id', groupId)
-      .whereNull('deleted_at')
-      .whereNot('status', 'terminated')
-      .select('id', 'reference', 'status')
-    if (exceptId) query.whereNot('id', exceptId)
-    const existante = await query.first()
+    const existante = await liveSubscriptionOfGroup(groupId, exceptId)
     if (!existante) return false
     ctx.response.conflict({
       error: {
@@ -354,47 +326,15 @@ export default class SubscriptionController {
     return true
   }
 
-  private async referencePrise(reference: string, exceptId?: string): Promise<boolean> {
-    const query = db
-      .from('subscriptions')
-      .whereRaw('lower(reference) = lower(?)', [reference])
-      .whereNull('deleted_at')
-      .select('id')
-    if (exceptId) query.whereNot('id', exceptId)
-    return Boolean(await query.first())
+  private referencePrise(reference: string, exceptId?: string): Promise<boolean> {
+    return subscriptionReferenceTaken(reference, exceptId)
   }
 
-  private async joindre(lignes: SubscriptionModel[]): Promise<Joints> {
-    const ids = (k: 'organizationId' | 'offerId' | 'vehicleGroupId') => [
-      ...new Set(lignes.map((s) => s[k])),
-    ]
-    const [organisations, offres, groupes, vehicules] = await Promise.all([
-      ids('organizationId').length
-        ? db.from('organizations').whereIn('id', ids('organizationId')).select('id', 'code', 'name')
-        : [],
-      ids('offerId').length
-        ? db
-            .from('offers')
-            .whereIn('id', ids('offerId'))
-            .select('id', 'code', 'name', 'periodicity', 'price', 'currency', 'status')
-        : [],
-      ids('vehicleGroupId').length
-        ? db
-            .from('vehicle_groups')
-            .whereIn('id', ids('vehicleGroupId'))
-            .select('id', 'name', 'color')
-        : [],
-      vehiclesByGroup(ids('vehicleGroupId')),
-    ])
-    return {
-      organizations: new Map(organisations.map((o: any) => [o.id, o])),
-      offers: new Map(offres.map((o: any) => [o.id, o])),
-      groups: new Map(groupes.map((g: any) => [g.id, g])),
-      vehicles: vehicules,
-    }
+  private joindre(lignes: SubscriptionModel[]): Promise<SubscriptionSummaries> {
+    return subscriptionSummaries(lignes)
   }
 
-  private exposer(s: SubscriptionModel, j: Joints) {
+  private exposer(s: SubscriptionModel, j: SubscriptionSummaries) {
     const vehicles = j.vehicles.get(s.vehicleGroupId) ?? 0
     const offre = j.offers.get(s.offerId) ?? null
     return {

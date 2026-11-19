@@ -1,5 +1,4 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import db from '@adonisjs/lucid/services/db'
 import { grantsAccess } from '#domain/billing/subscription_policy'
 import {
   keysByOffer,
@@ -7,6 +6,7 @@ import {
   pathsOf,
   restrictCatalogue,
 } from '#infrastructure/persistence/feature_catalogue'
+import { subscriptionsOfOrganization } from '#infrastructure/persistence/subscription_reads'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 
 /**
@@ -57,45 +57,7 @@ export default class SubscriptionAccessController {
     return ctx.response.ok({ data: await this.souscriptions(organizationId) })
   }
 
-  private async souscriptions(organizationId: string) {
-    const lignes: {
-      id: string
-      reference: string
-      status: string
-      start_date: string
-      end_date: string | null
-      offer_id: string
-      offer_code: string
-      offer_name: string
-      group_id: string
-      group_name: string
-    }[] = await db
-      .from('subscriptions as s')
-      .join('offers as o', 'o.id', 's.offer_id')
-      .join('vehicle_groups as g', 'g.id', 's.vehicle_group_id')
-      .where('s.organization_id', organizationId)
-      .whereNull('s.deleted_at')
-      .orderBy('s.created_at', 'desc')
-      .select(
-        's.id',
-        's.reference',
-        's.status',
-        db.raw(`to_char(s.start_date, 'YYYY-MM-DD') as start_date`),
-        db.raw(`to_char(s.end_date, 'YYYY-MM-DD') as end_date`),
-        'o.id as offer_id',
-        'o.code as offer_code',
-        'o.name as offer_name',
-        'g.id as group_id',
-        'g.name as group_name'
-      )
-    return lignes.map((l) => ({
-      id: l.id,
-      reference: l.reference,
-      status: l.status,
-      startDate: l.start_date,
-      endDate: l.end_date,
-      offer: { id: l.offer_id, code: l.offer_code, name: l.offer_name },
-      vehicleGroup: { id: l.group_id, name: l.group_name },
-    }))
+  private souscriptions(organizationId: string) {
+    return subscriptionsOfOrganization(organizationId)
   }
 }

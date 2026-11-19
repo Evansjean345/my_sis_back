@@ -9,7 +9,7 @@
 # =============================================================================
 
 # --------------------------------------------------------------------- base
-FROM node:24-alpine AS base
+FROM node:24.19.0-alpine AS base
 RUN apk add --no-cache tini curl
 WORKDIR /app
 ENV NODE_ENV=production TZ=UTC

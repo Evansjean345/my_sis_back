@@ -1,6 +1,5 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
-import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import OfferModel from '#infrastructure/persistence/models/offer_model'
 import { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
@@ -12,8 +11,11 @@ import {
   pathsOf,
   resolveKeys,
   restrictCatalogue,
-  setOfferSubFeatures,
 } from '#infrastructure/persistence/feature_catalogue'
+import {
+  createOfferWithSubFeatures,
+  updateOfferWithSubFeatures,
+} from '#infrastructure/persistence/repositories/offer_repository'
 import {
   type OfferSubscriptionStats,
   statsByOffer,
@@ -124,21 +126,17 @@ export default class OfferController {
     const { ids, unknown } = await resolveKeys(featureKeys ?? [])
     if (unknown.length) return this.clesInconnues(ctx, unknown)
 
-    const offre = await db.transaction(async (trx) => {
-      const creee = await OfferModel.create(
-        {
-          ...champs,
-          description: champs.description ?? null,
-          price: String(champs.price),
-          status: statut,
-          launchedOn: launchedOn ? DateTime.fromISO(launchedOn) : null,
-          maxVehicles: champs.maxVehicles ?? null,
-        },
-        { client: trx }
-      )
-      await setOfferSubFeatures(trx, creee.id, ids)
-      return creee
-    })
+    const offre = await createOfferWithSubFeatures(
+      {
+        ...champs,
+        description: champs.description ?? null,
+        price: String(champs.price),
+        status: statut,
+        launchedOn: launchedOn ? DateTime.fromISO(launchedOn) : null,
+        maxVehicles: champs.maxVehicles ?? null,
+      },
+      ids
+    )
     await offre.refresh()
 
     const detail = await this.detailler(offre)
@@ -172,16 +170,17 @@ export default class OfferController {
     const parOffre = await keysByOffer([offre.id])
     const clesAvant = parOffre.get(offre.id) ?? []
     const avant = { ...this.resume(offre), featureKeys: clesAvant }
-    await db.transaction(async (trx) => {
-      offre.useTransaction(trx)
-      offre.merge(champs)
-      if (price !== undefined) offre.price = String(price)
-      if (launchedOn !== undefined) {
-        offre.launchedOn = launchedOn ? DateTime.fromISO(launchedOn) : null
-      }
-      await offre.save()
-      if (resolution) await setOfferSubFeatures(trx, offre.id, resolution.ids)
-    })
+    await updateOfferWithSubFeatures(
+      offre,
+      (o) => {
+        o.merge(champs)
+        if (price !== undefined) o.price = String(price)
+        if (launchedOn !== undefined) {
+          o.launchedOn = launchedOn ? DateTime.fromISO(launchedOn) : null
+        }
+      },
+      resolution ? resolution.ids : null
+    )
     await offre.refresh()
 
     const detail = await this.detailler(offre)
