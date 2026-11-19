@@ -1014,6 +1014,54 @@ export class NotificationSchema extends BaseModel {
   declare templateCode: string | null
 }
 
+export class OfferOrganizationSchema extends BaseModel {
+  static $columns = ['assignedAt', 'assignedBy', 'offerId', 'organizationId'] as const
+  $columns = OfferOrganizationSchema.$columns
+  @column.dateTime()
+  declare assignedAt: DateTime
+  @column()
+  declare assignedBy: string | null
+  @column({ isPrimary: true })
+  declare offerId: string
+  @column()
+  declare organizationId: string
+}
+
+export class OfferSchema extends BaseModel {
+  static $columns = ['code', 'createdAt', 'currency', 'deletedAt', 'description', 'features', 'gpsHistoryDays', 'id', 'launchedOn', 'maxVehicles', 'name', 'periodicity', 'price', 'status', 'updatedAt'] as const
+  $columns = OfferSchema.$columns
+  @column()
+  declare code: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare currency: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare description: string | null
+  @column()
+  declare features: any
+  @column()
+  declare gpsHistoryDays: number
+  @column({ isPrimary: true })
+  declare id: string
+  @column.date()
+  declare launchedOn: DateTime | null
+  @column()
+  declare maxVehicles: number | null
+  @column()
+  declare name: string
+  @column()
+  declare periodicity: string
+  @column()
+  declare price: string
+  @column()
+  declare status: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class OrganizationSchema extends BaseModel {
   static $columns = ['code', 'contactEmail', 'contactPhone', 'countryCode', 'createdAt', 'deletedAt', 'id', 'isActive', 'name', 'settings', 'timezone', 'updatedAt'] as const
   $columns = OrganizationSchema.$columns
