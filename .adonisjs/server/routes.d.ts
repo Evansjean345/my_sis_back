@@ -143,6 +143,8 @@ export type ScannedRoutes = {
     'driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'subscription_access.access': { paramsTuple?: []; params?: {} }
+    'subscription_access.index': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -256,8 +258,12 @@ export type ScannedRoutes = {
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.offer.attach_organizations': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.offer.detach_organization': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'organizationId': ParamValue} }
+    'admin.subscription.index': { paramsTuple?: []; params?: {} }
+    'admin.subscription.store': { paramsTuple?: []; params?: {} }
+    'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -334,6 +340,8 @@ export type ScannedRoutes = {
     'driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'subscription_access.access': { paramsTuple?: []; params?: {} }
+    'subscription_access.index': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -389,6 +397,8 @@ export type ScannedRoutes = {
     'admin.offer.features': { paramsTuple?: []; params?: {} }
     'admin.offer.index': { paramsTuple?: []; params?: {} }
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.index': { paramsTuple?: []; params?: {} }
+    'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -461,6 +471,8 @@ export type ScannedRoutes = {
     'driver_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'subscription_access.access': { paramsTuple?: []; params?: {} }
+    'subscription_access.index': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -516,6 +528,8 @@ export type ScannedRoutes = {
     'admin.offer.features': { paramsTuple?: []; params?: {} }
     'admin.offer.index': { paramsTuple?: []; params?: {} }
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.index': { paramsTuple?: []; params?: {} }
+    'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -607,7 +621,8 @@ export type ScannedRoutes = {
     'admin.driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.sms.top_up': { paramsTuple?: []; params?: {} }
     'admin.offer.store': { paramsTuple?: []; params?: {} }
-    'admin.offer.attach_organizations': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.store': { paramsTuple?: []; params?: {} }
+    'admin.subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.store': { paramsTuple?: []; params?: {} }
     'twilio_webhook.sms_status': { paramsTuple?: []; params?: {} }
   }
@@ -646,7 +661,7 @@ export type ScannedRoutes = {
     'admin.driver_group.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.unassign': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
     'admin.offer.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.offer.detach_organization': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'organizationId': ParamValue} }
+    'admin.subscription.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   PATCH: {
@@ -669,6 +684,7 @@ export type ScannedRoutes = {
     'admin.driver.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   PUT: {

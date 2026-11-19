@@ -13,6 +13,7 @@ import { adminUsageScheduleRoutes } from '#start/routes/admin/admin_usage_schedu
 import { adminDriverRoutes } from '#start/routes/admin/admin_drivers'
 import { adminSmsRoutes } from '#start/routes/admin/admin_sms'
 import { adminOfferRoutes } from '#start/routes/admin/admin_offers'
+import { adminSubscriptionRoutes } from '#start/routes/admin/admin_subscriptions'
 
 export const adminRoutes = () => {
   router
@@ -29,6 +30,7 @@ export const adminRoutes = () => {
       adminDriverRoutes()
       adminSmsRoutes()
       adminOfferRoutes()
+      adminSubscriptionRoutes()
     })
     .prefix('/admin')
     .as('admin')

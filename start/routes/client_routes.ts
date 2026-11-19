@@ -15,6 +15,7 @@ import { SecurityAndImmobilizationRoutes } from '#start/routes/client/security_i
 import { usageScheduleRoutes } from '#start/routes/client/usage_schedules'
 import { driverRoutes } from '#start/routes/client/drivers'
 import { driverGroupRoutes } from '#start/routes/client/driver_group'
+import { subscriptionRoutes } from '#start/routes/client/subscriptions'
 
 export const clientRoutes = () => {
   router
@@ -34,6 +35,7 @@ export const clientRoutes = () => {
       usageScheduleRoutes()
       driverRoutes()
       driverGroupRoutes()
+      subscriptionRoutes()
     })
     .use(middleware.auth())
 }

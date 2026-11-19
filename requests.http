@@ -900,80 +900,129 @@ Content-Type: application/json
 { "credits": 500, "reference": "Recharge Twilio nov. 2026" }
 
 ### ═════════════════════════════ OFFRES COMMERCIALES (super administrateur)
-### Une offre est partagée par PLUSIEURS organisations ; une organisation ne
-### détient qu'UNE offre. Offres prédéfinies (migration 024, inactives) :
-###   STANDARD : fleet, alerts
-###   GOLD     : fleet, zones, drivers, incidents, support, speed, alerts
-###   PREMIUM  : fleet, zones, drivers, incidents, speed, alerts
-###   PLATINUM : fleet, zones, drivers, incidents, support, speed, alerts
-### Fonctionnalités (migration 025) : 14 pages du tableau de bord Admin, par module
-###   Supervision             fleet
-###   Alertes & Notifications alerts, notifications, sms, notification_templates
-###   Gestion des incidents   incidents
-###   Rubriques client        schedules, zones, speed, rules, drivers, driver_groups, vehicle_groups
-###   Support                 support
-### Erreurs : 409 E_OFFER_CODE_TAKEN · 409 E_ORGANIZATION_HAS_OFFER (details.conflicts)
-###           422 E_OFFER_LAUNCH_DATE_REQUIRED · 404 E_NOT_FOUND (details.organizationIds)
+### Catalogue en base (migration 026) : fonctionnalités → sous-fonctionnalités
+###   Supervision              fleet
+###   Horaires                 schedules
+###   Zones                    zones
+###   Contrôle de vitesse      speed_alerts, speed_limiter
+###   Moteur de règles         rules
+###   Alertes et notifications alerts_sms, alerts_email
+###   Conducteurs              drivers, driver_groups
+###   Incidents                incidents
+###   Rapports                 reports_standard, reports_custom
+###   Support                  support_technician
+### Une offre : featureKeys (clés incluses) + features (mêmes clés rangées par
+### fonctionnalité) + stats { subscriptions, activeSubscriptions, vehicles }.
+### Erreurs : 409 E_OFFER_CODE_TAKEN · 409 E_OFFER_IN_USE · 422 E_UNKNOWN_FEATURE
+###           422 E_OFFER_LAUNCH_DATE_REQUIRED
 
-### catalogue des fonctionnalités vendables : [{ key, label, module, path }]
+### catalogue : [{ id, name, subFeatures: [{ id, key, label, path }] }]
 GET {{api}}/admin/offers/features
 Authorization: Bearer {{superToken}}
 
-### liste : search (nom/code), status, periodicity, organizationId, assigned=true|false
+### liste : search (nom/code), status, periodicity, organizationId (offres souscrites)
 # @name listOffers
-GET {{api}}/admin/offers?search=STANDARD
+GET {{api}}/admin/offers?search=GOLD
 Authorization: Bearer {{superToken}}
 
 ###
 @offerId = {{listOffers.response.body.data.0.id}}
 
-### détail : organisations détentrices + véhicules de chacune (quota)
+### détail
 GET {{api}}/admin/offers/{{offerId}}
 Authorization: Bearer {{superToken}}
 
-### régler puis activer une offre prédéfinie — maxVehicles: null = illimité
+### régler, choisir les sous-fonctionnalités et commercialiser
 PATCH {{api}}/admin/offers/{{offerId}}
 Authorization: Bearer {{superToken}}
 Content-Type: application/json
 
-{ "price": 10000, "maxVehicles": 20, "launchedOn": "2026-12-01", "status": "active" }
+{
+  "price": 15000,
+  "launchedOn": "2026-12-01",
+  "status": "active",
+  "featureKeys": ["fleet", "schedules", "zones", "speed_alerts", "alerts_sms", "drivers", "driver_groups"]
+}
 
-### rattacher une ou plusieurs organisations (idempotent)
-POST {{api}}/admin/offers/{{offerId}}/organizations
-Authorization: Bearer {{superToken}}
-Content-Type: application/json
-
-{ "organizationIds": ["{{orgId}}"] }
-
-### …en DÉPLAÇANT celles qui détiennent déjà une autre offre
-POST {{api}}/admin/offers/{{offerId}}/organizations
-Authorization: Bearer {{superToken}}
-Content-Type: application/json
-
-{ "organizationIds": ["{{orgId}}"], "move": true }
-
-### détacher une organisation (elle n'a plus d'offre)
-DELETE {{api}}/admin/offers/{{offerId}}/organizations/{{orgId}}
-Authorization: Bearer {{superToken}}
-
-### créer une offre (inactive par défaut ; organisations facultatives)
+### créer une offre personnalisée (inactive par défaut)
 # @name createOffer
 POST {{api}}/admin/offers
 Authorization: Bearer {{superToken}}
 Content-Type: application/json
 
 {
-  "code": "pilote-2026",
-  "name": "Pilote 2026",
-  "description": "Offre d'essai : suivi temps réel et alertes",
-  "price": 5000,
+  "code": "transport-plus",
+  "name": "Transport+",
+  "description": "Offre personnalisée transporteurs",
+  "price": 12000,
   "periodicity": "monthly",
-  "maxVehicles": 5,
-  "gpsHistoryDays": 15,
-  "features": ["fleet", "alerts"],
-  "organizationIds": []
+  "maxVehicles": 100,
+  "gpsHistoryDays": 60,
+  "featureKeys": ["fleet", "speed_alerts", "speed_limiter", "reports_standard"]
 }
 
-### supprimer (logique) — ses organisations n'ont plus d'offre
+### supprimer — 409 E_OFFER_IN_USE si des souscriptions l'utilisent
 DELETE {{api}}/admin/offers/{{createOffer.response.body.data.id}}
 Authorization: Bearer {{superToken}}
+
+### ═════════════════════════════ SOUSCRIPTIONS (super administrateur)
+### Organisation × offre × UN groupe de véhicules de l'organisation.
+### vehiclesCount et amount (= unitPrice × véhicules, par période de l'offre)
+### sont calculés. Statuts : draft → active ⇄ suspended → terminated.
+### Erreurs : 404 · 409 E_VEHICLE_GROUP_SUBSCRIBED · 409 E_SUBSCRIPTION_REFERENCE_TAKEN
+###           409 E_SUBSCRIPTION_ACTIVE (suppression) · 422 E_VEHICLE_GROUP_MISMATCH
+###           422 E_OFFER_INACTIVE · 422 E_INVALID_STATUS_TRANSITION · 422 E_SUBSCRIPTION_TERMINATED
+
+### liste : search (référence, client), organizationId, offerId, vehicleGroupId, status
+GET {{api}}/admin/subscriptions?status=active&page=1&perPage=25
+Authorization: Bearer {{superToken}}
+
+### créer — reference facultative (SUB-AAAA-00001), unitPrice = prix de l'offre par défaut
+# @name createSubscription
+POST {{api}}/admin/subscriptions
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{
+  "organizationId": "{{orgId}}",
+  "offerId": "{{offerId}}",
+  "vehicleGroupId": "{{vehicleGroupId}}",
+  "unitPrice": 14000,
+  "status": "active",
+  "startDate": "2026-12-01"
+}
+
+###
+@subscriptionId = {{createSubscription.response.body.data.id}}
+
+### détail
+GET {{api}}/admin/subscriptions/{{subscriptionId}}
+Authorization: Bearer {{superToken}}
+
+### modifier — changer d'offre sans unitPrice applique le prix de la nouvelle offre
+PATCH {{api}}/admin/subscriptions/{{subscriptionId}}
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "unitPrice": 13500, "notes": "Remise de lancement" }
+
+### suspendre / réactiver / résilier
+POST {{api}}/admin/subscriptions/{{subscriptionId}}/status
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{ "status": "suspended", "reason": "Impayé" }
+
+### supprimer (logique) — 409 si active
+DELETE {{api}}/admin/subscriptions/{{subscriptionId}}
+Authorization: Bearer {{superToken}}
+
+### ═════════════════════════════ ACCÈS PAR SOUSCRIPTION (compte d'organisation)
+### Pages ouvertes par les souscriptions ACTIVES de l'organisation connectée :
+### paths (autorisées) et catalogPaths (toutes les pages soumises à une offre).
+GET {{api}}/subscriptions/access
+Authorization: Bearer {{token}}
+
+### souscriptions de mon organisation
+GET {{api}}/subscriptions
+Authorization: Bearer {{token}}
