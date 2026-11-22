@@ -1,3 +1,5 @@
+import { covers } from '#domain/identity/role_policy'
+
 /**
  * =========================================================================
  *  SOUSCRIPTIONS — règles pures, sans I/O
@@ -8,16 +10,25 @@
  * véhicules ni du groupe) : prix de l'offre figé − remise en montant.
  */
 
+/*
+Etat des subscriptions active / inactive / suspendue ou terminée
+*/
 export const SUBSCRIPTION_STATUSES = ['draft', 'active', 'suspended', 'terminated'] as const
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number]
 
 /** Statuts possibles à la création. */
+/*
+Statut possible à la creation d'une offre
+*/
 export const INITIAL_SUBSCRIPTION_STATUSES = ['draft', 'active'] as const
 
 /**
  * Transitions autorisées. `terminated` est définitif : une flotte résiliée
  * repart sur une nouvelle souscription.
  */
+/*
+Transition Typée
+*/
 export const SUBSCRIPTION_TRANSITIONS: Record<SubscriptionStatus, readonly SubscriptionStatus[]> = {
   draft: ['active', 'terminated'],
   active: ['suspended', 'terminated'],
@@ -25,16 +36,25 @@ export const SUBSCRIPTION_TRANSITIONS: Record<SubscriptionStatus, readonly Subsc
   terminated: [],
 }
 
+/*
+Fonction qui inclut si un statut peut transiter
+*/
 export function canTransition(from: SubscriptionStatus, to: SubscriptionStatus): boolean {
   return SUBSCRIPTION_TRANSITIONS[from].includes(to)
 }
 
 /** Seules les souscriptions actives ouvrent les pages du tableau de bord du distributeur. */
+/*
+Souscriptions active pour le tableau de bord d'un distributeur.
+*/
 export function grantsAccess(status: string): boolean {
   return status === 'active'
 }
 
 /** Référence saisie (même règle que `ck_subscriptions_reference`). */
+/*
+Réference saisie avec des regex
+*/
 export const SUBSCRIPTION_REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_/.-]{1,39}$/
 
 /** « 15000.5 » → 1500050 centimes (sans arrondi flottant). */
@@ -56,6 +76,9 @@ function fromCents(centimes: bigint): string {
  * Tarif appliqué : prix de l'offre − remise, au centime. Rend « 13000.00 ».
  * (Même calcul que la colonne générée `subscriptions.total_price`.)
  */
+/*
+Tarif total appliqué sur l'offre et la remise
+*/
 export function subscriptionTotal(
   offerPrice: string | number,
   discount: string | number = 0
@@ -64,6 +87,9 @@ export function subscriptionTotal(
 }
 
 /** La remise est-elle valable ? (même règle que `ck_subscriptions_discount`) */
+/*
+Fonction pour déterminée si la remise est valable ou non.
+*/
 export function discountProblem(
   offerPrice: string | number,
   discount: string | number
@@ -73,4 +99,56 @@ export function discountProblem(
     return "La remise ne peut pas dépasser le prix de l'offre"
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+//  Cible : une flotte OU un client final (opérateur) — migration 030
+// ---------------------------------------------------------------------------
+/*
+Ciblage pour les souscriptions pour les groupes de vehicules ou les opérateurs
+*/
+export const SUBSCRIPTION_TARGETS = ['vehicle_group', 'operator'] as const
+export type SubscriptionTarget = (typeof SUBSCRIPTION_TARGETS)[number]
+
+/** Cible d'une souscription ; `null` si aucune ou les deux (refusé, comme `ck_subscriptions_target`). */
+/*
+Fonction pour un ciblage de group de véhicule ou un opérator
+*/
+export function targetOf(input: {
+  vehicleGroupId?: string | null
+  operatorId?: string | null
+}): SubscriptionTarget | null {
+  const groupe = Boolean(input.vehicleGroupId)
+  const operateur = Boolean(input.operatorId)
+  if (groupe === operateur) return null
+  return groupe ? 'vehicle_group' : 'operator'
+}
+
+/**
+ * Le compte est-il un CLIENT FINAL (opérateur) ? Même règle que les tableaux
+ * de bord (`levelOf`) : rôle `operator`, ou rôle personnalisé sans droit
+ * d'écriture sur les utilisateurs ni les véhicules. Ni `admin` ni
+ * `super_admin`, ni le joker `*`.
+ */
+/*
+Si le compte est un client est un client final enlève les permissions pour la création d'un véhicule ou d'un 
+*/
+export function isEndClient(roleCode: string, permissions: readonly string[]): boolean {
+  if (roleCode === 'super_admin' || roleCode === 'admin' || permissions.includes('*')) return false
+  if (roleCode === 'operator') return true
+  return !covers(permissions, 'user:write') && !covers(permissions, 'vehicle:write')
+}
+
+/**
+ * Portée de l'accès d'un compte :
+ *   - `operator`     il a au moins une souscription PROPRE non résiliée →
+ *                    seules ses souscriptions actives comptent (suspendue =
+ *                    plus rien, jamais de repli sur l'offre du distributeur) ;
+ *   - `organization` sinon → souscriptions de flotte actives de l'organisation.
+ */
+/*
+portée pour l'accès d'un compte si c'est operateur ou une organisation
+*/
+export function accessScope(ownLiveSubscriptions: number): 'operator' | 'organization' {
+  return ownLiveSubscriptions > 0 ? 'operator' : 'organization'
 }

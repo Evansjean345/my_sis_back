@@ -18,6 +18,15 @@
  * Aucune dépendance : ces règles se testent en quelques microsecondes.
  */
 //1 - interface ou contrat
+
+/*
+NB : mettre les jokers dans un dossier code_legacy
+PLATFORM WILDCAR et ORGANIZATION_OWNER_ROLE
+*/
+
+/*
+Politique d'attribution des roles  NB : retenir les fichiers ou les jokers et les wildcards se retrouvent
+*/
 export interface AssignableRole {
   readonly id: string
   readonly code: string
@@ -27,9 +36,15 @@ export interface AssignableRole {
 
 //2 - permissions
 /** Joker absolu : réservé à l'exploitant de la plateforme. */
+/*
+Joker du superAdmin
+*/
 export const PLATFORM_WILDCARD = '*'
 
 /** Code du rôle attribué au premier compte d'une organisation nouvellement créée. */
+/*
+Joker de l'admin
+*/
 export const ORGANIZATION_OWNER_ROLE = 'admin'
 
 /**

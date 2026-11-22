@@ -1722,7 +1722,7 @@ export class SubFeatureSchema extends BaseModel {
 }
 
 export class SubscriptionSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'currency', 'deletedAt', 'endDate', 'id', 'notes', 'offerId', 'organizationId', 'reference', 'startDate', 'status', 'unitPrice', 'updatedAt', 'vehicleGroupId'] as const
+  static $columns = ['createdAt', 'createdBy', 'currency', 'deletedAt', 'discount', 'endDate', 'id', 'notes', 'offerId', 'offerPrice', 'operatorId', 'organizationId', 'reference', 'startDate', 'status', 'totalPrice', 'updatedAt', 'vehicleGroupId'] as const
   $columns = SubscriptionSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -1732,6 +1732,8 @@ export class SubscriptionSchema extends BaseModel {
   declare currency: string
   @column.dateTime()
   declare deletedAt: DateTime | null
+  @column()
+  declare discount: string
   @column.date()
   declare endDate: DateTime | null
   @column({ isPrimary: true })
@@ -1741,6 +1743,10 @@ export class SubscriptionSchema extends BaseModel {
   @column()
   declare offerId: string
   @column()
+  declare offerPrice: string
+  @column()
+  declare operatorId: string | null
+  @column()
   declare organizationId: string
   @column()
   declare reference: string
@@ -1749,11 +1755,11 @@ export class SubscriptionSchema extends BaseModel {
   @column()
   declare status: string
   @column()
-  declare unitPrice: string
+  declare totalPrice: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
-  declare vehicleGroupId: string
+  declare vehicleGroupId: string | null
 }
 
 export class TripSchema extends BaseModel {

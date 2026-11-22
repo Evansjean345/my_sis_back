@@ -32,7 +32,7 @@ import {
 /*
 Mettre dans un fichier limite de véhicules affichées sur une carte
 */
-const FLEET_LIVE_MAX = 1000
+const FLEET_LIVE_MAX = 5000
 
 /**
  * =========================================================================

@@ -975,8 +975,11 @@ Authorization: Bearer {{superToken}}
 ###           409 E_SUBSCRIPTION_ACTIVE (suppression) · 422 E_VEHICLE_GROUP_MISMATCH
 ###           422 E_OFFER_INACTIVE · 422 E_DISCOUNT_EXCEEDS_PRICE · 422 E_INVALID_STATUS_TRANSITION
 ###           422 E_SUBSCRIPTION_TERMINATED
+###           Cible : 422 E_SUBSCRIPTION_TARGET (ni ou les deux) · 422 E_OPERATOR_MISMATCH
+###           422 E_NOT_AN_OPERATOR · 409 E_OPERATOR_SUBSCRIBED
 
-### liste : search (référence, client), organizationId, offerId, vehicleGroupId, status
+### liste : search (référence, client, opérateur), organizationId, offerId, vehicleGroupId,
+###         operatorId, target (vehicle_group | operator), status
 GET {{api}}/admin/subscriptions?status=active&page=1&perPage=25
 Authorization: Bearer {{superToken}}
 
@@ -997,6 +1000,22 @@ Content-Type: application/json
 
 ###
 @subscriptionId = {{createSubscription.response.body.data.id}}
+
+### attribuer une offre à un CLIENT FINAL (opérateur) — sans groupe de véhicules
+POST {{api}}/admin/subscriptions
+Authorization: Bearer {{superToken}}
+Content-Type: application/json
+
+{
+  "organizationId": "{{orgId}}",
+  "offerId": "{{offerId}}",
+  "operatorId": "{{operatorId}}",
+  "status": "active"
+}
+
+### clients finaux d'une organisation + leur souscription en cours
+GET {{api}}/admin/subscriptions/operators?organizationId={{orgId}}
+Authorization: Bearer {{superToken}}
 
 ### détail
 GET {{api}}/admin/subscriptions/{{subscriptionId}}
@@ -1020,12 +1039,54 @@ Content-Type: application/json
 DELETE {{api}}/admin/subscriptions/{{subscriptionId}}
 Authorization: Bearer {{superToken}}
 
-### ═════════════════════════════ ACCÈS PAR SOUSCRIPTION (compte d'organisation)
-### Pages ouvertes par les souscriptions ACTIVES de l'organisation connectée :
-### paths (autorisées) et catalogPaths (toutes les pages soumises à une offre).
+### ═════════════════════════════ ACCÈS PAR SOUSCRIPTION (tout compte d'organisation)
+### Pages ouvertes au compte connecté : `paths` (autorisées), `catalogPaths` (soumises à
+### une offre), `scope` : 'operator' (sa propre souscription) ou 'organization' (flotte).
 GET {{api}}/subscriptions/access
 Authorization: Bearer {{token}}
 
-### souscriptions de mon organisation
-GET {{api}}/subscriptions
+### ═════════════════════════════ SOUSCRIPTIONS DE MES CLIENTS FINAUX (distributeur)
+### Habilitations subscription:read / subscription:write (rôle admin).
+### Cible : un opérateur de MON organisation. Offre : une de celles que j'ai souscrites
+### (422 E_OFFER_NOT_SUBSCRIBED sinon). Mêmes règles de prix, remise et statuts.
+
+### offres que je peux attribuer
+GET {{api}}/subscriptions/offers
+Authorization: Bearer {{token}}
+
+### mes clients finaux + leur souscription en cours
+GET {{api}}/subscriptions/operators
+Authorization: Bearer {{token}}
+
+### souscriptions de mes opérateurs : search, operatorId, offerId, status, page, perPage
+GET {{api}}/subscriptions?page=1&perPage=25
+Authorization: Bearer {{token}}
+
+### attribuer une offre à un opérateur
+# @name createClientSubscription
+POST {{api}}/subscriptions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "offerId": "{{offerId}}", "operatorId": "{{operatorId}}", "discount": 1000, "status": "active" }
+
+###
+@clientSubscriptionId = {{createClientSubscription.response.body.data.id}}
+
+### modifier
+PATCH {{api}}/subscriptions/{{clientSubscriptionId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "discount": 500 }
+
+### suspendre / réactiver / résilier
+POST {{api}}/subscriptions/{{clientSubscriptionId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "suspended" }
+
+### supprimer (logique) — 409 si active
+DELETE {{api}}/subscriptions/{{clientSubscriptionId}}
 Authorization: Bearer {{token}}

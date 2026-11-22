@@ -30,6 +30,8 @@ export type Permission =
   | 'manageOrganizations'
   | 'viewSchedules'
   | 'manageSchedules'
+  | 'viewSubscriptions'
+  | 'manageSubscriptions'
 
 /**
  * Matrice des rôles système : migration 016 (super_admin `*`, admin
@@ -69,6 +71,14 @@ const PERMISSION_MAP: Record<Permission, string> = {
    * moteur à la main, ne programme pas de coupures. Aucune migration de rôle.
    */
   manageSchedules: 'policy:write',
+  /**
+   * Souscriptions des clients finaux de l'organisation : le distributeur
+   * (rôle système `admin`, `subscription:*` depuis la migration 030) les crée
+   * et les gère ; l'opérateur ne les voit pas (il lit son accès par
+   * `/subscriptions/access`, ouvert à tout compte).
+   */
+  viewSubscriptions: 'subscription:read',
+  manageSubscriptions: 'subscription:write',
 }
 
 /** Cache par instance d'utilisateur, donc par requête. */

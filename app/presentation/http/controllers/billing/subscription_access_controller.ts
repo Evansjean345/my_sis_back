@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { grantsAccess } from '#domain/billing/subscription_policy'
+import { accessScope, grantsAccess } from '#domain/billing/subscription_policy'
 import {
   keysByOffer,
   loadCatalogue,
@@ -11,27 +11,33 @@ import { toExecutionContext } from '#presentation/http/support/execution_context
 
 /**
  * =========================================================================
- *  ACCÈS PAR SOUSCRIPTION — routes `/api/v1/subscriptions/*` (organisation)
+ *  ACCÈS PAR SOUSCRIPTION — `GET /api/v1/subscriptions/access` (tout compte)
  * =========================================================================
  *
- * Ce que l'organisation du compte connecté a le droit d'ouvrir, d'après ses
- * souscriptions ACTIVES : union des sous-fonctionnalités de leurs offres.
- * Le tableau de bord du distributeur s'en sert pour filtrer son menu :
+ * Pages que le compte connecté peut ouvrir, selon les souscriptions ACTIVES
+ * qui le concernent (`accessScope`) :
  *
- *   - `catalogPaths` : toutes les pages soumises à une offre (le catalogue) ;
- *   - `paths`        : celles que les souscriptions actives ouvrent.
+ *   - un opérateur qui a sa PROPRE souscription non résiliée → ses
+ *     souscriptions actives seules (`scope: 'operator'`) ; suspendue, elle
+ *     ne donne plus rien : jamais de repli sur l'offre du distributeur ;
+ *   - tout autre compte (distributeur, opérateur sans souscription propre)
+ *     → souscriptions de FLOTTE actives de l'organisation
+ *     (`scope: 'organization'`).
  *
- * Une page absente de `catalogPaths` (véhicules, utilisateurs…) n'est pas
- * concernée par les offres et reste toujours visible.
+ * Les tableaux de bord filtrent leur menu avec `paths` ; une page absente de
+ * `catalogPaths` (trackers, utilisateurs…) n'est pas soumise aux offres.
  */
 export default class SubscriptionAccessController {
-  /** GET /subscriptions/access */
   async access(ctx: HttpContext) {
-    const organizationId = toExecutionContext(ctx).organizationId
-    const [catalogue, souscriptions] = await Promise.all([
+    const { organizationId, actorId } = toExecutionContext(ctx)
+    const [catalogue, propres] = await Promise.all([
       loadCatalogue(),
-      this.souscriptions(organizationId),
+      actorId ? subscriptionsOfOrganization(organizationId, actorId) : Promise.resolve([]),
     ])
+    const vivantes = propres.filter((s) => s.status !== 'terminated')
+    const scope = accessScope(vivantes.length)
+    const souscriptions =
+      scope === 'operator' ? propres : await subscriptionsOfOrganization(organizationId, null)
 
     const actives = souscriptions.filter((s) => grantsAccess(s.status))
     const parOffre = await keysByOffer([...new Set(actives.map((s) => s.offer.id))])
@@ -42,6 +48,7 @@ export default class SubscriptionAccessController {
 
     return ctx.response.ok({
       data: {
+        scope,
         featureKeys: ordonnees,
         features: restrictCatalogue(catalogue, ordonnees),
         paths: pathsOf(catalogue, ordonnees),
@@ -49,15 +56,5 @@ export default class SubscriptionAccessController {
         subscriptions: souscriptions,
       },
     })
-  }
-
-  /** GET /subscriptions — souscriptions de l'organisation (non supprimées). */
-  async index(ctx: HttpContext) {
-    const organizationId = toExecutionContext(ctx).organizationId
-    return ctx.response.ok({ data: await this.souscriptions(organizationId) })
-  }
-
-  private souscriptions(organizationId: string) {
-    return subscriptionsOfOrganization(organizationId)
   }
 }
