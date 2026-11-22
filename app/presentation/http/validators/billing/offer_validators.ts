@@ -33,7 +33,7 @@ export const createOfferValidator = vine.compile(
     code: code(),
     name: vine.string().trim().minLength(2).maxLength(120),
     description: vine.string().trim().maxLength(2000).optional(),
-    /** Prix de référence par véhicule et par période (XOF par défaut). */
+    /** Prix de référence par période (XOF par défaut), forfaitaire. */
     price: price(),
     currency: currency().optional(),
     periodicity: vine.enum(OFFER_PERIODICITIES),

@@ -15,7 +15,7 @@ import {
 import {
   canTransition,
   type SubscriptionStatus,
-  subscriptionAmount,
+  discountProblem,
   SUBSCRIPTION_TRANSITIONS,
 } from '#domain/billing/subscription_policy'
 import {
@@ -31,7 +31,9 @@ const AUDITED = [
   'reference',
   'offerId',
   'vehicleGroupId',
-  'unitPrice',
+  'offerPrice',
+  'discount',
+  'totalPrice',
   'status',
   'startDate',
   'endDate',
@@ -47,13 +49,16 @@ const AUDITED = [
  * de cette organisation. Une organisation souscrit donc à plusieurs offres
  * (une par flotte) et une offre est souscrite par plusieurs organisations.
  *
- * Exposé en plus des colonnes : `vehiclesCount` (véhicules du groupe à
- * l'instant T) et `amount` = tarif appliqué × véhicules, par période de
- * l'offre. Rien de cela n'est stocké : impossible de diverger.
+ * Tarif FORFAITAIRE, indépendant des véhicules et du groupe (migration 028) :
+ * `offerPrice` (prix de l'offre figé à la souscription), `discount` (remise
+ * en montant) et `totalPrice` = prix − remise, le tarif appliqué par période
+ * de l'offre — colonne générée par la base. `vehiclesCount` (véhicules du
+ * groupe) reste exposé à titre d'information.
  *
  * Règles : le groupe appartient à l'organisation (422) et n'a qu'une
  * souscription non résiliée (409) ; on ne souscrit qu'à une offre
- * commercialisée (422) ; statuts draft → active ⇄ suspended → terminated ;
+ * commercialisée (422) ; la remise ne dépasse pas le prix (422) ;
+ * statuts draft → active ⇄ suspended → terminated ;
  * une souscription active ne se supprime pas (409 : la résilier d'abord).
  */
 @inject()
@@ -123,13 +128,18 @@ export default class SubscriptionController {
     if (champs.endDate && champs.endDate < (champs.startDate ?? DateTime.now().toISODate()!)) {
       return this.regle(ctx, 'E_SUBSCRIPTION_DATES', 'La date de fin précède la date de début')
     }
+    const prix = champs.offerPrice !== undefined ? String(champs.offerPrice) : offre.price
+    const remise = String(champs.discount ?? 0)
+    const problemeRemise = discountProblem(prix, remise)
+    if (problemeRemise) return this.regle(ctx, 'E_DISCOUNT_EXCEEDS_PRICE', problemeRemise)
 
     const souscription = await SubscriptionModel.create({
       ...(champs.reference ? { reference: champs.reference } : {}),
       organizationId: champs.organizationId,
       offerId: offre.id,
       vehicleGroupId: champs.vehicleGroupId,
-      unitPrice: String(champs.unitPrice ?? offre.price),
+      offerPrice: prix,
+      discount: remise,
       currency: offre.currency,
       status: champs.status ?? 'draft',
       ...(champs.startDate ? { startDate: DateTime.fromISO(champs.startDate) } : {}),
@@ -188,14 +198,21 @@ export default class SubscriptionController {
     if (fin && fin < debut) {
       return this.regle(ctx, 'E_SUBSCRIPTION_DATES', 'La date de fin précède la date de début')
     }
+    // Changer d'offre sans prix explicite reprend le prix de la nouvelle offre.
+    const prix =
+      champs.offerPrice !== undefined
+        ? String(champs.offerPrice)
+        : (prixOffre ?? souscription.offerPrice)
+    const remise = champs.discount !== undefined ? String(champs.discount) : souscription.discount
+    const problemeRemise = discountProblem(prix, remise)
+    if (problemeRemise) return this.regle(ctx, 'E_DISCOUNT_EXCEEDS_PRICE', problemeRemise)
 
     const avant = this.resume(souscription)
     if (champs.reference) souscription.reference = champs.reference
     if (champs.offerId) souscription.offerId = champs.offerId
     if (champs.vehicleGroupId) souscription.vehicleGroupId = champs.vehicleGroupId
-    // Changer d'offre sans tarif explicite applique le prix de la nouvelle offre.
-    if (champs.unitPrice !== undefined) souscription.unitPrice = String(champs.unitPrice)
-    else if (prixOffre !== null) souscription.unitPrice = prixOffre
+    souscription.offerPrice = prix
+    souscription.discount = remise
     if (champs.startDate) souscription.startDate = DateTime.fromISO(champs.startDate)
     if (champs.endDate !== undefined) {
       souscription.endDate = champs.endDate ? DateTime.fromISO(champs.endDate) : null
@@ -344,8 +361,8 @@ export default class SubscriptionController {
       vehicleGroup: j.groups.get(s.vehicleGroupId) ?? null,
       /** Périodicité de facturation : celle de l'offre. */
       periodicity: offre?.periodicity ?? null,
+      /** Information seulement : le tarif ne dépend pas des véhicules. */
       vehiclesCount: vehicles,
-      amount: subscriptionAmount(s.unitPrice, vehicles),
     }
   }
 

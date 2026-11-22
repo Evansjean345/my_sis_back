@@ -4,8 +4,8 @@
  * =========================================================================
  *
  * Une souscription lie une organisation à une offre pour UN groupe de
- * véhicules. Le montant n'est jamais stocké : tarif appliqué × véhicules du
- * groupe, calculé à la lecture.
+ * véhicules. Son tarif appliqué est FORFAITAIRE (il ne dépend ni des
+ * véhicules ni du groupe) : prix de l'offre figé − remise en montant.
  */
 
 export const SUBSCRIPTION_STATUSES = ['draft', 'active', 'suspended', 'terminated'] as const
@@ -37,14 +37,40 @@ export function grantsAccess(status: string): boolean {
 /** Référence saisie (même règle que `ck_subscriptions_reference`). */
 export const SUBSCRIPTION_REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_/.-]{1,39}$/
 
-/**
- * Montant d'une période : tarif appliqué × nombre de véhicules, au centime,
- * calculé en entiers (pas d'erreur d'arrondi flottant). Rend « 45000.00 ».
- */
-export function subscriptionAmount(unitPrice: string | number, vehicles: number): string {
-  const [entier, decimales = ''] = String(unitPrice).split('.')
+/** « 15000.5 » → 1500050 centimes (sans arrondi flottant). */
+function toCents(value: string | number): bigint {
+  const texte = typeof value === 'number' ? value.toFixed(2) : value.trim()
+  const negatif = texte.startsWith('-')
+  const [entier, decimales = ''] = texte.replace('-', '').split('.')
   const centimes = BigInt(entier || '0') * 100n + BigInt((decimales + '00').slice(0, 2))
-  const total = centimes * BigInt(Math.max(0, Math.trunc(vehicles)))
-  const texte = total.toString().padStart(3, '0')
-  return `${texte.slice(0, -2)}.${texte.slice(-2)}`
+  return negatif ? -centimes : centimes
+}
+
+function fromCents(centimes: bigint): string {
+  const negatif = centimes < 0n
+  const texte = (negatif ? -centimes : centimes).toString().padStart(3, '0')
+  return `${negatif ? '-' : ''}${texte.slice(0, -2)}.${texte.slice(-2)}`
+}
+
+/**
+ * Tarif appliqué : prix de l'offre − remise, au centime. Rend « 13000.00 ».
+ * (Même calcul que la colonne générée `subscriptions.total_price`.)
+ */
+export function subscriptionTotal(
+  offerPrice: string | number,
+  discount: string | number = 0
+): string {
+  return fromCents(toCents(offerPrice) - toCents(discount))
+}
+
+/** La remise est-elle valable ? (même règle que `ck_subscriptions_discount`) */
+export function discountProblem(
+  offerPrice: string | number,
+  discount: string | number
+): string | null {
+  if (toCents(discount) < 0n) return 'La remise ne peut pas être négative'
+  if (toCents(discount) > toCents(offerPrice)) {
+    return "La remise ne peut pas dépasser le prix de l'offre"
+  }
+  return null
 }

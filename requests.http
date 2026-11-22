@@ -911,6 +911,7 @@ Content-Type: application/json
 ###   Incidents                incidents
 ###   Rapports                 reports_standard, reports_custom
 ###   Support                  support_technician
+###   Gestion de véhicules     vehicles, vehicle_groups (migration 029)
 ### Une offre : featureKeys (clés incluses) + features (mêmes clés rangées par
 ### fonctionnalité) + stats { subscriptions, activeSubscriptions, vehicles }.
 ### Erreurs : 409 E_OFFER_CODE_TAKEN · 409 E_OFFER_IN_USE · 422 E_UNKNOWN_FEATURE
@@ -967,17 +968,19 @@ Authorization: Bearer {{superToken}}
 
 ### ═════════════════════════════ SOUSCRIPTIONS (super administrateur)
 ### Organisation × offre × UN groupe de véhicules de l'organisation.
-### vehiclesCount et amount (= unitPrice × véhicules, par période de l'offre)
-### sont calculés. Statuts : draft → active ⇄ suspended → terminated.
+### Tarif forfaitaire (migration 028) : offerPrice (prix de l'offre figé),
+### discount (remise en montant), totalPrice = offerPrice − discount (calculé
+### par la base). Statuts : draft → active ⇄ suspended → terminated.
 ### Erreurs : 404 · 409 E_VEHICLE_GROUP_SUBSCRIBED · 409 E_SUBSCRIPTION_REFERENCE_TAKEN
 ###           409 E_SUBSCRIPTION_ACTIVE (suppression) · 422 E_VEHICLE_GROUP_MISMATCH
-###           422 E_OFFER_INACTIVE · 422 E_INVALID_STATUS_TRANSITION · 422 E_SUBSCRIPTION_TERMINATED
+###           422 E_OFFER_INACTIVE · 422 E_DISCOUNT_EXCEEDS_PRICE · 422 E_INVALID_STATUS_TRANSITION
+###           422 E_SUBSCRIPTION_TERMINATED
 
 ### liste : search (référence, client), organizationId, offerId, vehicleGroupId, status
 GET {{api}}/admin/subscriptions?status=active&page=1&perPage=25
 Authorization: Bearer {{superToken}}
 
-### créer — reference facultative (SUB-AAAA-00001), unitPrice = prix de l'offre par défaut
+### créer — reference facultative (SUB-AAAA-00001), offerPrice = prix de l'offre par défaut
 # @name createSubscription
 POST {{api}}/admin/subscriptions
 Authorization: Bearer {{superToken}}
@@ -987,7 +990,7 @@ Content-Type: application/json
   "organizationId": "{{orgId}}",
   "offerId": "{{offerId}}",
   "vehicleGroupId": "{{vehicleGroupId}}",
-  "unitPrice": 14000,
+  "discount": 2000,
   "status": "active",
   "startDate": "2026-12-01"
 }
@@ -999,12 +1002,12 @@ Content-Type: application/json
 GET {{api}}/admin/subscriptions/{{subscriptionId}}
 Authorization: Bearer {{superToken}}
 
-### modifier — changer d'offre sans unitPrice applique le prix de la nouvelle offre
+### modifier — changer d'offre sans offerPrice reprend le prix de la nouvelle offre
 PATCH {{api}}/admin/subscriptions/{{subscriptionId}}
 Authorization: Bearer {{superToken}}
 Content-Type: application/json
 
-{ "unitPrice": 13500, "notes": "Remise de lancement" }
+{ "discount": 3000, "notes": "Remise de lancement" }
 
 ### suspendre / réactiver / résilier
 POST {{api}}/admin/subscriptions/{{subscriptionId}}/status

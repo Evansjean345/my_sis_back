@@ -9,7 +9,8 @@ import {
 import {
   canTransition,
   grantsAccess,
-  subscriptionAmount,
+  discountProblem,
+  subscriptionTotal,
   SUBSCRIPTION_REFERENCE_PATTERN,
 } from '#domain/billing/subscription_policy'
 import {
@@ -115,12 +116,19 @@ test.group('Souscriptions | règles', () => {
     for (const s of ['draft', 'suspended', 'terminated']) assert.isFalse(grantsAccess(s))
   })
 
-  test('montant = tarif appliqué × véhicules, au centime, sans flottant', ({ assert }) => {
-    assert.equal(subscriptionAmount('15000.00', 3), '45000.00')
-    assert.equal(subscriptionAmount('0.10', 3), '0.30')
-    assert.equal(subscriptionAmount('12500.5', 2), '25001.00')
-    assert.equal(subscriptionAmount(9999.99, 0), '0.00')
-    assert.equal(subscriptionAmount('999999999999.99', 1000), '999999999999990.00')
+  test('tarif appliqué = prix de l’offre − remise, au centime, sans flottant', ({ assert }) => {
+    assert.equal(subscriptionTotal('15000.00', '2000'), '13000.00')
+    assert.equal(subscriptionTotal('15000.00'), '15000.00')
+    assert.equal(subscriptionTotal('0.30', '0.10'), '0.20')
+    assert.equal(subscriptionTotal(12500.5, 500.25), '12000.25')
+    assert.equal(subscriptionTotal('999999999999.99', '0.99'), '999999999999.00')
+  })
+
+  test('la remise est positive et ne dépasse pas le prix', ({ assert }) => {
+    assert.isNull(discountProblem('15000.00', '0'))
+    assert.isNull(discountProblem('15000.00', '15000'))
+    assert.isString(discountProblem('15000.00', '15000.01'))
+    assert.isString(discountProblem('15000.00', -1))
   })
 
   test('référence saisie', ({ assert }) => {

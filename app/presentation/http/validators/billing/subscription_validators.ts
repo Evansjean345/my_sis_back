@@ -15,8 +15,8 @@ import {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 const reference = () => vine.string().trim().regex(SUBSCRIPTION_REFERENCE_PATTERN)
-/** Tarif appliqué par véhicule et par période. */
-const unitPrice = () => vine.number().min(0).max(999_999_999_999)
+/** Montants par période de l'offre (forfait, indépendant des véhicules). */
+const amount = () => vine.number().min(0).max(999_999_999_999)
 
 export const createSubscriptionValidator = vine.compile(
   vine.object({
@@ -25,8 +25,10 @@ export const createSubscriptionValidator = vine.compile(
     organizationId: vine.string().uuid(),
     offerId: vine.string().uuid(),
     vehicleGroupId: vine.string().uuid(),
-    /** Absent : prix de l'offre. */
-    unitPrice: unitPrice().optional(),
+    /** Prix de l'offre figé dans la souscription. Absent : prix actuel de l'offre. */
+    offerPrice: amount().optional(),
+    /** Remise en montant. Absente : 0. Jamais supérieure au prix. */
+    discount: amount().optional(),
     status: vine.enum(INITIAL_SUBSCRIPTION_STATUSES).optional(),
     /** Absente : aujourd'hui. */
     startDate: vine.string().trim().regex(DATE).optional(),
@@ -36,7 +38,7 @@ export const createSubscriptionValidator = vine.compile(
 )
 
 /**
- * L'organisation ne change pas. Changer d'offre sans `unitPrice` applique le
+ * L'organisation ne change pas. Changer d'offre sans `offerPrice` reprend le
  * prix de la nouvelle offre. `null` efface (date de fin, notes).
  */
 export const updateSubscriptionValidator = vine.compile(
@@ -44,7 +46,8 @@ export const updateSubscriptionValidator = vine.compile(
     reference: reference().optional(),
     offerId: vine.string().uuid().optional(),
     vehicleGroupId: vine.string().uuid().optional(),
-    unitPrice: unitPrice().optional(),
+    offerPrice: amount().optional(),
+    discount: amount().optional(),
     startDate: vine.string().trim().regex(DATE).optional(),
     endDate: vine.string().trim().regex(DATE).nullable().optional(),
     notes: vine.string().trim().maxLength(2000).nullable().optional(),
