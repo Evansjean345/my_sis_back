@@ -145,13 +145,24 @@ export type ScannedRoutes = {
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'subscription_access.access': { paramsTuple?: []; params?: {} }
     'client_subscription.offers': { paramsTuple?: []; params?: {} }
-    'client_subscription.operators': { paramsTuple?: []; params?: {} }
     'client_subscription.index': { paramsTuple?: []; params?: {} }
     'client_subscription.store': { paramsTuple?: []; params?: {} }
     'client_subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'client_subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'client_subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'client_subscription.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.index': { paramsTuple?: []; params?: {} }
+    'geofence.store': { paramsTuple?: []; params?: {} }
+    'geofence.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'speed_policy.index': { paramsTuple?: []; params?: {} }
+    'speed_policy.store': { paramsTuple?: []; params?: {} }
+    'speed_policy.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'speed_policy.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rule.index': { paramsTuple?: []; params?: {} }
+    'rule.store': { paramsTuple?: []; params?: {} }
+    'rule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rule.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -265,13 +276,24 @@ export type ScannedRoutes = {
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.subscription.operators': { paramsTuple?: []; params?: {} }
     'admin.subscription.index': { paramsTuple?: []; params?: {} }
     'admin.subscription.store': { paramsTuple?: []; params?: {} }
     'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.subscription.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.index_all': { paramsTuple?: []; params?: {} }
+    'admin.geofence.store_all': { paramsTuple?: []; params?: {} }
+    'admin.geofence.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.speed_policy.index_all': { paramsTuple?: []; params?: {} }
+    'admin.speed_policy.store_all': { paramsTuple?: []; params?: {} }
+    'admin.speed_policy.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.speed_policy.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.rule.index_all': { paramsTuple?: []; params?: {} }
+    'admin.rule.store_all': { paramsTuple?: []; params?: {} }
+    'admin.rule.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.rule.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -350,9 +372,11 @@ export type ScannedRoutes = {
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'subscription_access.access': { paramsTuple?: []; params?: {} }
     'client_subscription.offers': { paramsTuple?: []; params?: {} }
-    'client_subscription.operators': { paramsTuple?: []; params?: {} }
     'client_subscription.index': { paramsTuple?: []; params?: {} }
     'client_subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.index': { paramsTuple?: []; params?: {} }
+    'speed_policy.index': { paramsTuple?: []; params?: {} }
+    'rule.index': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -408,9 +432,11 @@ export type ScannedRoutes = {
     'admin.offer.features': { paramsTuple?: []; params?: {} }
     'admin.offer.index': { paramsTuple?: []; params?: {} }
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.subscription.operators': { paramsTuple?: []; params?: {} }
     'admin.subscription.index': { paramsTuple?: []; params?: {} }
     'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.index_all': { paramsTuple?: []; params?: {} }
+    'admin.speed_policy.index_all': { paramsTuple?: []; params?: {} }
+    'admin.rule.index_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -485,9 +511,11 @@ export type ScannedRoutes = {
     'driver_group.audit_logs_of_group': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'subscription_access.access': { paramsTuple?: []; params?: {} }
     'client_subscription.offers': { paramsTuple?: []; params?: {} }
-    'client_subscription.operators': { paramsTuple?: []; params?: {} }
     'client_subscription.index': { paramsTuple?: []; params?: {} }
     'client_subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.index': { paramsTuple?: []; params?: {} }
+    'speed_policy.index': { paramsTuple?: []; params?: {} }
+    'rule.index': { paramsTuple?: []; params?: {} }
     'admin.device_group.index_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.members': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -543,9 +571,11 @@ export type ScannedRoutes = {
     'admin.offer.features': { paramsTuple?: []; params?: {} }
     'admin.offer.index': { paramsTuple?: []; params?: {} }
     'admin.offer.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.subscription.operators': { paramsTuple?: []; params?: {} }
     'admin.subscription.index': { paramsTuple?: []; params?: {} }
     'admin.subscription.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.index_all': { paramsTuple?: []; params?: {} }
+    'admin.speed_policy.index_all': { paramsTuple?: []; params?: {} }
+    'admin.rule.index_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -612,6 +642,12 @@ export type ScannedRoutes = {
     'driver_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'client_subscription.store': { paramsTuple?: []; params?: {} }
     'client_subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.store': { paramsTuple?: []; params?: {} }
+    'geofence.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'speed_policy.store': { paramsTuple?: []; params?: {} }
+    'speed_policy.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rule.store': { paramsTuple?: []; params?: {} }
+    'rule.toggle': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.store_all': { paramsTuple?: []; params?: {} }
     'admin.device_group.assign': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.command.sync_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -641,6 +677,12 @@ export type ScannedRoutes = {
     'admin.offer.store': { paramsTuple?: []; params?: {} }
     'admin.subscription.store': { paramsTuple?: []; params?: {} }
     'admin.subscription.change_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.store_all': { paramsTuple?: []; params?: {} }
+    'admin.geofence.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.speed_policy.store_all': { paramsTuple?: []; params?: {} }
+    'admin.speed_policy.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.rule.store_all': { paramsTuple?: []; params?: {} }
+    'admin.rule.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.store': { paramsTuple?: []; params?: {} }
     'twilio_webhook.sms_status': { paramsTuple?: []; params?: {} }
   }
@@ -694,6 +736,9 @@ export type ScannedRoutes = {
     'driver.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'driver_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'client_subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'geofence.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'speed_policy.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'rule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.device_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.vehicle_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.vehicle.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -705,6 +750,9 @@ export type ScannedRoutes = {
     'admin.driver_group.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.offer.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.subscription.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.geofence.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.speed_policy.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.rule.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   PUT: {

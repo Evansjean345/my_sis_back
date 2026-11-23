@@ -975,11 +975,8 @@ Authorization: Bearer {{superToken}}
 ###           409 E_SUBSCRIPTION_ACTIVE (suppression) · 422 E_VEHICLE_GROUP_MISMATCH
 ###           422 E_OFFER_INACTIVE · 422 E_DISCOUNT_EXCEEDS_PRICE · 422 E_INVALID_STATUS_TRANSITION
 ###           422 E_SUBSCRIPTION_TERMINATED
-###           Cible : 422 E_SUBSCRIPTION_TARGET (ni ou les deux) · 422 E_OPERATOR_MISMATCH
-###           422 E_NOT_AN_OPERATOR · 409 E_OPERATOR_SUBSCRIBED
 
-### liste : search (référence, client, opérateur), organizationId, offerId, vehicleGroupId,
-###         operatorId, target (vehicle_group | operator), status
+### liste : search (référence, client), organizationId, offerId, vehicleGroupId, status
 GET {{api}}/admin/subscriptions?status=active&page=1&perPage=25
 Authorization: Bearer {{superToken}}
 
@@ -1000,22 +997,6 @@ Content-Type: application/json
 
 ###
 @subscriptionId = {{createSubscription.response.body.data.id}}
-
-### attribuer une offre à un CLIENT FINAL (opérateur) — sans groupe de véhicules
-POST {{api}}/admin/subscriptions
-Authorization: Bearer {{superToken}}
-Content-Type: application/json
-
-{
-  "organizationId": "{{orgId}}",
-  "offerId": "{{offerId}}",
-  "operatorId": "{{operatorId}}",
-  "status": "active"
-}
-
-### clients finaux d'une organisation + leur souscription en cours
-GET {{api}}/admin/subscriptions/operators?organizationId={{orgId}}
-Authorization: Bearer {{superToken}}
 
 ### détail
 GET {{api}}/admin/subscriptions/{{subscriptionId}}
@@ -1041,34 +1022,29 @@ Authorization: Bearer {{superToken}}
 
 ### ═════════════════════════════ ACCÈS PAR SOUSCRIPTION (tout compte d'organisation)
 ### Pages ouvertes au compte connecté : `paths` (autorisées), `catalogPaths` (soumises à
-### une offre), `scope` : 'operator' (sa propre souscription) ou 'organization' (flotte).
+### une offre). Même accès pour tous les comptes de l'organisation.
 GET {{api}}/subscriptions/access
 Authorization: Bearer {{token}}
 
-### ═════════════════════════════ SOUSCRIPTIONS DE MES CLIENTS FINAUX (distributeur)
+### ═════════════════════════════ MES SOUSCRIPTIONS (admin de l'organisation = client final)
 ### Habilitations subscription:read / subscription:write (rôle admin).
-### Cible : un opérateur de MON organisation. Offre : une de celles que j'ai souscrites
-### (422 E_OFFER_NOT_SUBSCRIBED sinon). Mêmes règles de prix, remise et statuts.
+### Une de MES flottes × une offre commercialisée. Mêmes règles de prix, remise et statuts.
 
-### offres que je peux attribuer
+### offres que je peux souscrire
 GET {{api}}/subscriptions/offers
 Authorization: Bearer {{token}}
 
-### mes clients finaux + leur souscription en cours
-GET {{api}}/subscriptions/operators
-Authorization: Bearer {{token}}
-
-### souscriptions de mes opérateurs : search, operatorId, offerId, status, page, perPage
+### mes souscriptions : search (référence, flotte), vehicleGroupId, offerId, status, page, perPage
 GET {{api}}/subscriptions?page=1&perPage=25
 Authorization: Bearer {{token}}
 
-### attribuer une offre à un opérateur
+### souscrire pour une de mes flottes
 # @name createClientSubscription
 POST {{api}}/subscriptions
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "offerId": "{{offerId}}", "operatorId": "{{operatorId}}", "discount": 1000, "status": "active" }
+{ "offerId": "{{offerId}}", "vehicleGroupId": "{{vehicleGroupId}}", "status": "draft" }
 
 ###
 @clientSubscriptionId = {{createClientSubscription.response.body.data.id}}
@@ -1090,3 +1066,76 @@ Content-Type: application/json
 ### supprimer (logique) — 409 si active
 DELETE {{api}}/subscriptions/{{clientSubscriptionId}}
 Authorization: Bearer {{token}}
+
+### ═════════════════════════════ MOTEUR DE RÈGLES (migration 032)
+### Zones, politiques de vitesse et règles. Routes client (mon organisation) :
+### /geofences, /speed-policies, /rules — lecture geofence:read / policy:read,
+### écriture geofence:write / policy:write. Routes plateforme : /admin/… avec
+### ?organizationId= (filtre) et organizationId obligatoire à la création.
+### Pas de suppression : POST /:id/toggle { "active": false }.
+### Erreurs : 409 E_NAME_TAKEN · 422 E_VALIDATION (message lisible) · 404.
+
+### zones
+GET {{api}}/geofences
+Authorization: Bearer {{token}}
+
+### zone circulaire (rayon ≥ 50 m) — polygone : "shape":"polygon","points":[{lat,lng}×3+]
+# @name createGeofence
+POST {{api}}/geofences
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Dépôt principal",
+  "shape": "circle",
+  "center": { "lat": 5.33, "lng": -4.02 },
+  "radiusM": 400,
+  "kind": "authorized",
+  "alertOnEntry": false,
+  "alertOnExit": true,
+  "vehicleIds": []
+}
+
+###
+@geofenceId = {{createGeofence.response.body.data.id}}
+
+### politique de vitesse — scope global | zone (zoneId) | vehicle (vehicleIds)
+# @name createSpeedPolicy
+POST {{api}}/speed-policies
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Limite générale", "scope": "global", "limitKph": 90, "toleranceKph": 5, "minDurationSeconds": 30, "severity": "medium" }
+
+###
+@speedPolicyId = {{createSpeedPolicy.response.body.data.id}}
+
+### règle — conditions selon l'événement : overspeed → speed_policy ; geofence_exit /
+### geofence_entry → zone ; schedule_violation → schedule. Cible : all | vehicle | fleet.
+POST {{api}}/rules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Excès de vitesse prolongé",
+  "trigger": "overspeed",
+  "conditions": [
+    { "field": "speed_policy", "operator": "eq", "value": "{{speedPolicyId}}", "target": { "type": "all" } }
+  ],
+  "actions": [
+    { "type": "alert", "value": "high" },
+    { "type": "notify", "value": "", "channels": ["sms", "email"] }
+  ],
+  "severity": "high"
+}
+
+### désactiver une zone (idem /speed-policies/:id/toggle, /rules/:id/toggle)
+POST {{api}}/geofences/{{geofenceId}}/toggle
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "active": false }
+
+### Super Admin : règles d'un client
+GET {{api}}/admin/rules?organizationId={{orgId}}
+Authorization: Bearer {{superToken}}

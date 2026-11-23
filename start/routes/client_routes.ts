@@ -16,6 +16,7 @@ import { usageScheduleRoutes } from '#start/routes/client/usage_schedules'
 import { driverRoutes } from '#start/routes/client/drivers'
 import { driverGroupRoutes } from '#start/routes/client/driver_group'
 import { subscriptionRoutes } from '#start/routes/client/subscriptions'
+import { ruleEngineRoutes } from '#start/routes/client/rule_engine'
 
 export const clientRoutes = () => {
   router
@@ -36,6 +37,7 @@ export const clientRoutes = () => {
       driverRoutes()
       driverGroupRoutes()
       subscriptionRoutes()
+      ruleEngineRoutes()
     })
     .use(middleware.auth())
 }

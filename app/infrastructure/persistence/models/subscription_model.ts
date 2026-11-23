@@ -15,8 +15,7 @@ export default class SubscriptionModel extends BaseModel {
   @column() declare reference: string
   @column({ columnName: 'organization_id' }) declare organizationId: string
   @column({ columnName: 'offer_id' }) declare offerId: string
-  @column({ columnName: 'vehicle_group_id' }) declare vehicleGroupId: string | null
-  @column({ columnName: 'operator_id' }) declare operatorId: string | null
+  @column({ columnName: 'vehicle_group_id' }) declare vehicleGroupId: string
   @column({ columnName: 'offer_price' }) declare offerPrice: string
   @column() declare discount: string
   @column({ columnName: 'total_price' }) declare totalPrice: string

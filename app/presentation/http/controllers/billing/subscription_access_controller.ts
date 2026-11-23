@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { accessScope, grantsAccess } from '#domain/billing/subscription_policy'
+import { grantsAccess } from '#domain/billing/subscription_policy'
 import {
   keysByOffer,
   loadCatalogue,
@@ -14,30 +14,21 @@ import { toExecutionContext } from '#presentation/http/support/execution_context
  *  ACCÈS PAR SOUSCRIPTION — `GET /api/v1/subscriptions/access` (tout compte)
  * =========================================================================
  *
- * Pages que le compte connecté peut ouvrir, selon les souscriptions ACTIVES
- * qui le concernent (`accessScope`) :
- *
- *   - un opérateur qui a sa PROPRE souscription non résiliée → ses
- *     souscriptions actives seules (`scope: 'operator'`) ; suspendue, elle
- *     ne donne plus rien : jamais de repli sur l'offre du distributeur ;
- *   - tout autre compte (distributeur, opérateur sans souscription propre)
- *     → souscriptions de FLOTTE actives de l'organisation
- *     (`scope: 'organization'`).
+ * Pages que le compte connecté peut ouvrir : union des sous-fonctionnalités
+ * des offres souscrites ACTIVES de son organisation (une par flotte). Tous
+ * les comptes de l'organisation — administrateur comme opérateur — ont le
+ * même accès.
  *
  * Les tableaux de bord filtrent leur menu avec `paths` ; une page absente de
  * `catalogPaths` (trackers, utilisateurs…) n'est pas soumise aux offres.
  */
 export default class SubscriptionAccessController {
   async access(ctx: HttpContext) {
-    const { organizationId, actorId } = toExecutionContext(ctx)
-    const [catalogue, propres] = await Promise.all([
+    const { organizationId } = toExecutionContext(ctx)
+    const [catalogue, souscriptions] = await Promise.all([
       loadCatalogue(),
-      actorId ? subscriptionsOfOrganization(organizationId, actorId) : Promise.resolve([]),
+      subscriptionsOfOrganization(organizationId),
     ])
-    const vivantes = propres.filter((s) => s.status !== 'terminated')
-    const scope = accessScope(vivantes.length)
-    const souscriptions =
-      scope === 'operator' ? propres : await subscriptionsOfOrganization(organizationId, null)
 
     const actives = souscriptions.filter((s) => grantsAccess(s.status))
     const parOffre = await keysByOffer([...new Set(actives.map((s) => s.offer.id))])
@@ -48,7 +39,6 @@ export default class SubscriptionAccessController {
 
     return ctx.response.ok({
       data: {
-        scope,
         featureKeys: ordonnees,
         features: restrictCatalogue(catalogue, ordonnees),
         paths: pathsOf(catalogue, ordonnees),

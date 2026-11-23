@@ -1,5 +1,3 @@
-import { covers } from '#domain/identity/role_policy'
-
 /**
  * =========================================================================
  *  SOUSCRIPTIONS — règles pures, sans I/O
@@ -107,48 +105,3 @@ export function discountProblem(
 /*
 Ciblage pour les souscriptions pour les groupes de vehicules ou les opérateurs
 */
-export const SUBSCRIPTION_TARGETS = ['vehicle_group', 'operator'] as const
-export type SubscriptionTarget = (typeof SUBSCRIPTION_TARGETS)[number]
-
-/** Cible d'une souscription ; `null` si aucune ou les deux (refusé, comme `ck_subscriptions_target`). */
-/*
-Fonction pour un ciblage de group de véhicule ou un opérator
-*/
-export function targetOf(input: {
-  vehicleGroupId?: string | null
-  operatorId?: string | null
-}): SubscriptionTarget | null {
-  const groupe = Boolean(input.vehicleGroupId)
-  const operateur = Boolean(input.operatorId)
-  if (groupe === operateur) return null
-  return groupe ? 'vehicle_group' : 'operator'
-}
-
-/**
- * Le compte est-il un CLIENT FINAL (opérateur) ? Même règle que les tableaux
- * de bord (`levelOf`) : rôle `operator`, ou rôle personnalisé sans droit
- * d'écriture sur les utilisateurs ni les véhicules. Ni `admin` ni
- * `super_admin`, ni le joker `*`.
- */
-/*
-Si le compte est un client est un client final enlève les permissions pour la création d'un véhicule ou d'un 
-*/
-export function isEndClient(roleCode: string, permissions: readonly string[]): boolean {
-  if (roleCode === 'super_admin' || roleCode === 'admin' || permissions.includes('*')) return false
-  if (roleCode === 'operator') return true
-  return !covers(permissions, 'user:write') && !covers(permissions, 'vehicle:write')
-}
-
-/**
- * Portée de l'accès d'un compte :
- *   - `operator`     il a au moins une souscription PROPRE non résiliée →
- *                    seules ses souscriptions actives comptent (suspendue =
- *                    plus rien, jamais de repli sur l'offre du distributeur) ;
- *   - `organization` sinon → souscriptions de flotte actives de l'organisation.
- */
-/*
-portée pour l'accès d'un compte si c'est operateur ou une organisation
-*/
-export function accessScope(ownLiveSubscriptions: number): 'operator' | 'organization' {
-  return ownLiveSubscriptions > 0 ? 'operator' : 'organization'
-}

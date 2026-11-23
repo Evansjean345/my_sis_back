@@ -4,23 +4,17 @@ import SubscriptionModel from '#infrastructure/persistence/models/subscription_m
 import OfferModel from '#infrastructure/persistence/models/offer_model'
 import type { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
 import {
-  findOrganizationUser,
   findVehicleGroup,
   liveSubscriptionOfGroup,
-  liveSubscriptionOfOperator,
-  liveSubscriptionsOfOperators,
   type SubscriptionSummaries,
   subscriptionReferenceTaken,
   subscriptionSummaries,
-  usersOfOrganization,
 } from '#infrastructure/persistence/subscription_reads'
 import {
   canTransition,
   discountProblem,
-  isEndClient,
   type SubscriptionStatus,
   SUBSCRIPTION_TRANSITIONS,
-  targetOf,
 } from '#domain/billing/subscription_policy'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 
@@ -28,7 +22,6 @@ const AUDITED = [
   'reference',
   'offerId',
   'vehicleGroupId',
-  'operatorId',
   'offerPrice',
   'discount',
   'totalPrice',
@@ -38,12 +31,11 @@ const AUDITED = [
   'notes',
 ] as const
 
-/** Données d'une création, quelle que soit l'origine (Super Admin ou distributeur). */
+/** Données d'une création, quelle que soit l'origine (Super Admin ou client). */
 export interface CreationInput {
   organizationId: string
   offerId: string
-  vehicleGroupId?: string
-  operatorId?: string
+  vehicleGroupId: string
   reference?: string
   offerPrice?: number
   discount?: number
@@ -56,7 +48,6 @@ export interface CreationInput {
 export interface UpdateInput {
   offerId?: string
   vehicleGroupId?: string
-  operatorId?: string
   reference?: string
   offerPrice?: number
   discount?: number
@@ -66,9 +57,7 @@ export interface UpdateInput {
 }
 
 /**
- * Règle d'offre propre à chaque espace :
- *   - Super Admin : toute offre COMMERCIALISÉE ;
- *   - distributeur : seulement les offres qu'il a lui-même souscrites.
+ * Règle d'offre (Super Admin comme client : `offreCommercialisee`).
  * Renvoie `true` si la réponse de refus a été envoyée.
  */
 export type OfferRule = (ctx: HttpContext, offre: OfferModel) => Promise<boolean> | boolean
@@ -78,8 +67,8 @@ export type OfferRule = (ctx: HttpContext, offre: OfferModel) => Promise<boolean
  *  SOUSCRIPTIONS — socle commun (Super Admin et distributeur)
  * =========================================================================
  *
- * Une souscription = une organisation × une offre × UNE cible : une flotte
- * (`vehicleGroupId`) OU un client final (`operatorId`) de l'organisation.
+ * Une souscription = une organisation × une offre × UNE flotte
+ * (`vehicleGroupId`) de l'organisation.
  *
  * Tarif forfaitaire : `offerPrice` (prix de l'offre figé) − `discount` =
  * `totalPrice` (colonne générée). Statuts draft → active ⇄ suspended →
@@ -98,7 +87,7 @@ export abstract class SubscriptionBase {
     if (!offre) return this.introuvable(ctx, 'Offre')
     if (await regleOffre(ctx, offre)) return
 
-    if (await this.cibleRefusee(ctx, data, data.organizationId)) return
+    if (await this.groupeRefuse(ctx, data.vehicleGroupId, data.organizationId)) return
     if (data.reference && (await subscriptionReferenceTaken(data.reference))) {
       return this.referenceDejaPrise(ctx, data.reference)
     }
@@ -114,8 +103,7 @@ export abstract class SubscriptionBase {
       ...(data.reference ? { reference: data.reference } : {}),
       organizationId: data.organizationId,
       offerId: offre.id,
-      vehicleGroupId: data.vehicleGroupId ?? null,
-      operatorId: data.operatorId ?? null,
+      vehicleGroupId: data.vehicleGroupId,
       offerPrice: prix,
       discount: remise,
       currency: offre.currency,
@@ -153,17 +141,15 @@ export abstract class SubscriptionBase {
       prixOffre = offre.price
     }
 
-    // Nouvelle cible : elle remplace l'ancienne (une flotte OU un opérateur).
-    const nouvelleCible = data.vehicleGroupId !== undefined || data.operatorId !== undefined
-    const cible = nouvelleCible
-      ? { vehicleGroupId: data.vehicleGroupId ?? null, operatorId: data.operatorId ?? null }
-      : { vehicleGroupId: souscription.vehicleGroupId, operatorId: souscription.operatorId }
-    const cibleChangee =
-      cible.vehicleGroupId !== souscription.vehicleGroupId ||
-      cible.operatorId !== souscription.operatorId
     if (
-      cibleChangee &&
-      (await this.cibleRefusee(ctx, cible, souscription.organizationId, souscription.id))
+      data.vehicleGroupId &&
+      data.vehicleGroupId !== souscription.vehicleGroupId &&
+      (await this.groupeRefuse(
+        ctx,
+        data.vehicleGroupId,
+        souscription.organizationId,
+        souscription.id
+      ))
     ) {
       return
     }
@@ -192,8 +178,7 @@ export abstract class SubscriptionBase {
     const avant = this.resume(souscription)
     if (data.reference) souscription.reference = data.reference
     if (data.offerId) souscription.offerId = data.offerId
-    souscription.vehicleGroupId = cible.vehicleGroupId
-    souscription.operatorId = cible.operatorId
+    if (data.vehicleGroupId) souscription.vehicleGroupId = data.vehicleGroupId
     souscription.offerPrice = prix
     souscription.discount = remise
     if (data.startDate) souscription.startDate = DateTime.fromISO(data.startDate)
@@ -269,33 +254,10 @@ export abstract class SubscriptionBase {
     return ctx.response.noContent()
   }
 
-  // ---------------------------------------------------------------- cible
+  // --------------------------------------------------------------- flotte
 
-  /**
-   * Cible valable ? Exactement une (flotte OU opérateur), appartenant à
-   * l'organisation, sans autre souscription vivante.
-   */
-  protected async cibleRefusee(
-    ctx: HttpContext,
-    cible: { vehicleGroupId?: string | null; operatorId?: string | null },
-    organizationId: string,
-    exceptId?: string
-  ): Promise<boolean> {
-    const type = targetOf(cible)
-    if (!type) {
-      this.regle(
-        ctx,
-        'E_SUBSCRIPTION_TARGET',
-        'Choisissez UNE cible : un groupe de véhicules ou un client final (opérateur)'
-      )
-      return true
-    }
-    return type === 'vehicle_group'
-      ? this.groupeRefuse(ctx, cible.vehicleGroupId!, organizationId, exceptId)
-      : this.operateurRefuse(ctx, cible.operatorId!, organizationId, exceptId)
-  }
-
-  private async groupeRefuse(
+  /** Flotte de l'organisation, sans autre souscription vivante ? */
+  protected async groupeRefuse(
     ctx: HttpContext,
     groupId: string,
     organizationId: string,
@@ -328,49 +290,6 @@ export abstract class SubscriptionBase {
     return true
   }
 
-  private async operateurRefuse(
-    ctx: HttpContext,
-    operatorId: string,
-    organizationId: string,
-    exceptId?: string
-  ): Promise<boolean> {
-    const compte = await findOrganizationUser(operatorId)
-    if (!compte) {
-      this.introuvable(ctx, 'Client final')
-      return true
-    }
-    if (compte.organizationId !== organizationId) {
-      ctx.response.unprocessableEntity({
-        error: {
-          code: 'E_OPERATOR_MISMATCH',
-          message: 'Ce compte appartient à une autre organisation',
-          details: { operatorId },
-        },
-      })
-      return true
-    }
-    if (!isEndClient(compte.roleCode, compte.permissions ?? [])) {
-      ctx.response.unprocessableEntity({
-        error: {
-          code: 'E_NOT_AN_OPERATOR',
-          message: `${compte.fullName} n'est pas un client final (opérateur)`,
-          details: { operatorId, roleCode: compte.roleCode },
-        },
-      })
-      return true
-    }
-    const existante = await liveSubscriptionOfOperator(operatorId, exceptId)
-    if (!existante) return false
-    ctx.response.conflict({
-      error: {
-        code: 'E_OPERATOR_SUBSCRIBED',
-        message: `${compte.fullName} a déjà une souscription en cours (${existante.reference}) : résiliez-la d'abord`,
-        details: { subscription: existante },
-      },
-    })
-    return true
-  }
-
   // --------------------------------------------------------------- lecture
 
   protected offre(id: string) {
@@ -385,15 +304,13 @@ export abstract class SubscriptionBase {
     const offre = j.offers.get(s.offerId) ?? null
     return {
       ...s.serialize(),
-      target: s.operatorId ? 'operator' : 'vehicle_group',
       organization: j.organizations.get(s.organizationId) ?? null,
       offer: offre,
-      vehicleGroup: s.vehicleGroupId ? (j.groups.get(s.vehicleGroupId) ?? null) : null,
-      operator: s.operatorId ? (j.operators.get(s.operatorId) ?? null) : null,
+      vehicleGroup: j.groups.get(s.vehicleGroupId) ?? null,
       /** Périodicité de facturation : celle de l'offre. */
       periodicity: offre?.periodicity ?? null,
-      /** Information seulement (flotte) : le tarif ne dépend pas des véhicules. */
-      vehiclesCount: s.vehicleGroupId ? (j.vehicles.get(s.vehicleGroupId) ?? 0) : null,
+      /** Information seulement : le tarif ne dépend pas des véhicules. */
+      vehiclesCount: j.vehicles.get(s.vehicleGroupId) ?? 0,
     }
   }
 
@@ -402,6 +319,13 @@ export abstract class SubscriptionBase {
   }
 
   // -------------------------------------------------------------- réponses
+
+  /** Règle commune : seule une offre commercialisée se souscrit. */
+  protected offreCommercialisee = (ctx: HttpContext, offre: OfferModel) => {
+    if (offre.status === 'active') return false
+    this.offreInactive(ctx, offre)
+    return true
+  }
 
   protected offreInactive(ctx: HttpContext, offre: OfferModel) {
     return ctx.response.unprocessableEntity({
@@ -463,19 +387,4 @@ export abstract class SubscriptionBase {
       ...details,
     })
   }
-}
-
-/** Clients finaux (opérateurs) d'une organisation, avec leur souscription en cours. */
-export async function clientsFinaux(organizationId: string) {
-  const membres = await usersOfOrganization(organizationId)
-  const comptes = membres.filter((u) => isEndClient(u.roleCode, u.permissions ?? []))
-  const enCours = await liveSubscriptionsOfOperators(comptes.map((u) => u.id))
-  return comptes.map((u) => ({
-    id: u.id,
-    fullName: u.fullName,
-    email: u.email,
-    status: u.status,
-    roleCode: u.roleCode,
-    subscription: enCours.get(u.id) ?? null,
-  }))
 }

@@ -678,8 +678,12 @@ export class GeofenceStateSchema extends BaseModel {
 }
 
 export class GeofenceSchema extends BaseModel {
-  static $columns = ['areaM2', 'center', 'color', 'createdAt', 'createdBy', 'deletedAt', 'description', 'geom', 'id', 'isActive', 'kind', 'name', 'organizationId', 'radiusM', 'shapeType', 'updatedAt'] as const
+  static $columns = ['alertOnEntry', 'alertOnExit', 'areaM2', 'center', 'color', 'createdAt', 'createdBy', 'deletedAt', 'description', 'geom', 'id', 'isActive', 'kind', 'name', 'organizationId', 'radiusM', 'shapeType', 'updatedAt'] as const
   $columns = GeofenceSchema.$columns
+  @column()
+  declare alertOnEntry: boolean
+  @column()
+  declare alertOnExit: boolean
   @column()
   declare areaM2: string | null
   @column()
@@ -1706,6 +1710,50 @@ export class SpatialRefSySchema extends BaseModel {
   declare srtext: string | null
 }
 
+export class SpeedPolicySchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'geofenceId', 'id', 'isActive', 'limitKph', 'limiterEnabled', 'minDurationSeconds', 'name', 'organizationId', 'scope', 'severity', 'toleranceKph', 'updatedAt'] as const
+  $columns = SpeedPolicySchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string | null
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare geofenceId: string | null
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare isActive: boolean
+  @column()
+  declare limitKph: number
+  @column()
+  declare limiterEnabled: boolean
+  @column()
+  declare minDurationSeconds: number
+  @column()
+  declare name: string
+  @column()
+  declare organizationId: string
+  @column()
+  declare scope: string
+  @column()
+  declare severity: string
+  @column()
+  declare toleranceKph: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class SpeedPolicyVehicleSchema extends BaseModel {
+  static $columns = ['speedPolicyId', 'vehicleId'] as const
+  $columns = SpeedPolicyVehicleSchema.$columns
+  @column({ isPrimary: true })
+  declare speedPolicyId: string
+  @column()
+  declare vehicleId: string
+}
+
 export class SubFeatureSchema extends BaseModel {
   static $columns = ['featureId', 'id', 'key', 'label', 'path'] as const
   $columns = SubFeatureSchema.$columns
@@ -1722,7 +1770,7 @@ export class SubFeatureSchema extends BaseModel {
 }
 
 export class SubscriptionSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'currency', 'deletedAt', 'discount', 'endDate', 'id', 'notes', 'offerId', 'offerPrice', 'operatorId', 'organizationId', 'reference', 'startDate', 'status', 'totalPrice', 'updatedAt', 'vehicleGroupId'] as const
+  static $columns = ['createdAt', 'createdBy', 'currency', 'deletedAt', 'discount', 'endDate', 'id', 'notes', 'offerId', 'offerPrice', 'organizationId', 'reference', 'startDate', 'status', 'totalPrice', 'updatedAt', 'vehicleGroupId'] as const
   $columns = SubscriptionSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -1745,8 +1793,6 @@ export class SubscriptionSchema extends BaseModel {
   @column()
   declare offerPrice: string
   @column()
-  declare operatorId: string | null
-  @column()
   declare organizationId: string
   @column()
   declare reference: string
@@ -1759,7 +1805,7 @@ export class SubscriptionSchema extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
   @column()
-  declare vehicleGroupId: string | null
+  declare vehicleGroupId: string
 }
 
 export class TripSchema extends BaseModel {

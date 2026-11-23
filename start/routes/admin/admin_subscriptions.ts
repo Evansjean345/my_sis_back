@@ -2,11 +2,10 @@ import router from '@adonisjs/core/services/router'
 const SubscriptionController = () =>
   import('#presentation/http/controllers/billing/subscription_controller')
 
-/** Souscriptions : organisation × offre × flotte OU client final (plateforme). */
+/** Souscriptions : organisation × offre × flotte (plateforme). */
 export const adminSubscriptionRoutes = () => {
   router
     .group(() => {
-      router.get('/operators', [SubscriptionController, 'operators'])
       router.get('/', [SubscriptionController, 'index'])
       router.post('/', [SubscriptionController, 'store'])
       router.get('/:id', [SubscriptionController, 'show'])

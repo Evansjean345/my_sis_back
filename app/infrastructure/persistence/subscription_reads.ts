@@ -152,27 +152,20 @@ export interface SubscriptionSummaries {
     }
   >
   groups: Map<string, { id: string; name: string; color: string | null }>
-  operators: Map<string, { id: string; fullName: string; email: string }>
   vehicles: Map<string, number>
 }
 
 /** Résumés joints à une page de souscriptions — une requête par table. */
 export async function subscriptionSummaries(
-  rows: {
-    organizationId: string
-    offerId: string
-    vehicleGroupId: string | null
-    operatorId: string | null
-  }[]
+  rows: { organizationId: string; offerId: string; vehicleGroupId: string }[]
 ): Promise<SubscriptionSummaries> {
-  const ids = (k: 'organizationId' | 'offerId' | 'vehicleGroupId' | 'operatorId') => [
+  const ids = (k: 'organizationId' | 'offerId' | 'vehicleGroupId') => [
     ...new Set(rows.map((r) => r[k]).filter((v): v is string => Boolean(v))),
   ]
-  const operateurIds = ids('operatorId')
   const organisationIds = ids('organizationId')
   const offreIds = ids('offerId')
   const groupeIds = ids('vehicleGroupId')
-  const [organisations, offres, groupes, operateurs, vehicules] = await Promise.all([
+  const [organisations, offres, groupes, vehicules] = await Promise.all([
     organisationIds.length
       ? db.from('organizations').whereIn('id', organisationIds).select('id', 'code', 'name')
       : [],
@@ -185,16 +178,12 @@ export async function subscriptionSummaries(
     groupeIds.length
       ? db.from('vehicle_groups').whereIn('id', groupeIds).select('id', 'name', 'color')
       : [],
-    operateurIds.length
-      ? db.from('users').whereIn('id', operateurIds).select('id', 'full_name as fullName', 'email')
-      : [],
     vehiclesByGroup(groupeIds),
   ])
   return {
     organizations: new Map(organisations.map((o: any) => [o.id, o])),
     offers: new Map(offres.map((o: any) => [o.id, o])),
     groups: new Map(groupes.map((g: any) => [g.id, g])),
-    operators: new Map(operateurs.map((u: any) => [u.id, u])),
     vehicles: vehicules,
   }
 }
@@ -205,20 +194,13 @@ export interface OrganizationSubscriptionRow {
   status: string
   startDate: string
   endDate: string | null
-  target: 'vehicle_group' | 'operator'
   offer: { id: string; code: string; name: string }
-  vehicleGroup: { id: string; name: string } | null
-  operator: { id: string; fullName: string } | null
+  vehicleGroup: { id: string; name: string }
 }
 
-/**
- * Souscriptions (non supprimées) d'une organisation, les plus récentes
- * d'abord. `operatorId` : seulement celles de cet opérateur ; `null` :
- * seulement les souscriptions de flotte ; absent : toutes.
- */
+/** Souscriptions (non supprimées) d'une organisation, les plus récentes d'abord. */
 export async function subscriptionsOfOrganization(
-  organizationId: string,
-  operatorId?: string | null
+  organizationId: string
 ): Promise<OrganizationSubscriptionRow[]> {
   const lignes: {
     id: string
@@ -229,20 +211,14 @@ export async function subscriptionsOfOrganization(
     offer_id: string
     offer_code: string
     offer_name: string
-    group_id: string | null
-    group_name: string | null
-    operator_id: string | null
-    operator_name: string | null
+    group_id: string
+    group_name: string
   }[] = await db
     .from('subscriptions as s')
     .join('offers as o', 'o.id', 's.offer_id')
-    .leftJoin('vehicle_groups as g', 'g.id', 's.vehicle_group_id')
-    .leftJoin('users as u', 'u.id', 's.operator_id')
+    .join('vehicle_groups as g', 'g.id', 's.vehicle_group_id')
     .where('s.organization_id', organizationId)
     .whereNull('s.deleted_at')
-    .if(operatorId !== undefined, (q) =>
-      operatorId === null ? q.whereNull('s.operator_id') : q.where('s.operator_id', operatorId!)
-    )
     .orderBy('s.created_at', 'desc')
     .select(
       's.id',
@@ -254,9 +230,7 @@ export async function subscriptionsOfOrganization(
       'o.code as offer_code',
       'o.name as offer_name',
       'g.id as group_id',
-      'g.name as group_name',
-      'u.id as operator_id',
-      'u.full_name as operator_name'
+      'g.name as group_name'
     )
   return lignes.map((l) => ({
     id: l.id,
@@ -264,109 +238,12 @@ export async function subscriptionsOfOrganization(
     status: l.status,
     startDate: l.start_date,
     endDate: l.end_date,
-    target: l.operator_id ? ('operator' as const) : ('vehicle_group' as const),
     offer: { id: l.offer_id, code: l.offer_code, name: l.offer_name },
-    vehicleGroup: l.group_id ? { id: l.group_id, name: l.group_name ?? '' } : null,
-    operator: l.operator_id ? { id: l.operator_id, fullName: l.operator_name ?? '' } : null,
+    vehicleGroup: { id: l.group_id, name: l.group_name },
   }))
 }
 
-// ---------------------------------------------------------------------------
-//  Clients finaux (opérateurs) — migration 030
-// ---------------------------------------------------------------------------
-
-export interface OrganizationUser {
-  id: string
-  organizationId: string
-  fullName: string
-  email: string
-  status: string
-  roleCode: string
-  permissions: string[]
-}
-
-const userColumns = [
-  'u.id',
-  'u.organization_id as organizationId',
-  'u.full_name as fullName',
-  'u.email',
-  'u.status',
-  'r.code as roleCode',
-  'r.permissions',
-]
-
-/** Compte vivant avec son rôle, ou `null`. */
-export async function findOrganizationUser(id: string): Promise<OrganizationUser | null> {
-  const ligne = await db
-    .from('users as u')
-    .join('roles as r', 'r.id', 'u.role_id')
-    .where('u.id', id)
-    .whereNull('u.deleted_at')
-    .select(userColumns)
-    .first()
-  return ligne ?? null
-}
-
-/** Comptes vivants d'une organisation avec leur rôle, par nom. */
-export async function usersOfOrganization(organizationId: string): Promise<OrganizationUser[]> {
-  return db
-    .from('users as u')
-    .join('roles as r', 'r.id', 'u.role_id')
-    .where('u.organization_id', organizationId)
-    .whereNull('u.deleted_at')
-    .orderBy('u.full_name')
-    .select(userColumns)
-}
-
-/** Souscription non résiliée d'un opérateur (une seule possible), hors `exceptId`. */
-export async function liveSubscriptionOfOperator(
-  operatorId: string,
-  exceptId?: string
-): Promise<{ id: string; reference: string; status: string } | null> {
-  const query = db
-    .from('subscriptions')
-    .where('operator_id', operatorId)
-    .whereNull('deleted_at')
-    .whereNot('status', 'terminated')
-    .select('id', 'reference', 'status')
-  if (exceptId) query.whereNot('id', exceptId)
-  return (await query.first()) ?? null
-}
-
-/** Souscription non résiliée de chaque opérateur (avec son offre). */
-export async function liveSubscriptionsOfOperators(
-  operatorIds: string[]
-): Promise<Map<string, { id: string; reference: string; status: string; offerName: string }>> {
-  const parOperateur = new Map<
-    string,
-    { id: string; reference: string; status: string; offerName: string }
-  >()
-  if (operatorIds.length === 0) return parOperateur
-  const lignes: {
-    operator_id: string
-    id: string
-    reference: string
-    status: string
-    offer_name: string
-  }[] = await db
-    .from('subscriptions as s')
-    .join('offers as o', 'o.id', 's.offer_id')
-    .whereIn('s.operator_id', operatorIds)
-    .whereNull('s.deleted_at')
-    .whereNot('s.status', 'terminated')
-    .select('s.operator_id', 's.id', 's.reference', 's.status', 'o.name as offer_name')
-  for (const l of lignes) {
-    parOperateur.set(l.operator_id, {
-      id: l.id,
-      reference: l.reference,
-      status: l.status,
-      offerName: l.offer_name,
-    })
-  }
-  return parOperateur
-}
-
-export interface SubscribedOffer {
+export interface SubscribableOffer {
   id: string
   code: string
   name: string
@@ -376,26 +253,12 @@ export interface SubscribedOffer {
   status: string
 }
 
-/**
- * Offres que l'organisation a elle-même souscrites (souscriptions de FLOTTE
- * actives) : ce sont les seules qu'un distributeur peut attribuer à ses
- * opérateurs.
- */
-export async function offersSubscribedByOrganization(
-  organizationId: string
-): Promise<SubscribedOffer[]> {
+/** Offres commercialisées (non supprimées) : celles qu'un client peut souscrire. */
+export async function subscribableOffers(): Promise<SubscribableOffer[]> {
   return db
-    .from('offers as o')
-    .whereNull('o.deleted_at')
-    .whereExists((q) =>
-      q
-        .from('subscriptions as s')
-        .whereColumn('s.offer_id', 'o.id')
-        .where('s.organization_id', organizationId)
-        .whereNull('s.operator_id')
-        .whereNull('s.deleted_at')
-        .where('s.status', 'active')
-    )
-    .orderBy('o.name')
-    .select('o.id', 'o.code', 'o.name', 'o.price', 'o.currency', 'o.periodicity', 'o.status')
+    .from('offers')
+    .whereNull('deleted_at')
+    .where('status', 'active')
+    .orderBy('name')
+    .select('id', 'code', 'name', 'price', 'currency', 'periodicity', 'status')
 }

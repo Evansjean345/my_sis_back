@@ -7,11 +7,8 @@ import {
   vehicleQuotaReached,
 } from '#domain/billing/offer_policy'
 import {
-  accessScope,
   canTransition,
   grantsAccess,
-  isEndClient,
-  targetOf,
   discountProblem,
   subscriptionTotal,
   SUBSCRIPTION_REFERENCE_PATTERN,
@@ -137,29 +134,5 @@ test.group('Souscriptions | règles', () => {
   test('référence saisie', ({ assert }) => {
     assert.isTrue(SUBSCRIPTION_REFERENCE_PATTERN.test('SUB-2026-00001'))
     assert.isFalse(SUBSCRIPTION_REFERENCE_PATTERN.test('A'))
-  })
-})
-
-test.group('Souscription — cible et portée', () => {
-  test('une seule cible : flotte OU opérateur', ({ assert }) => {
-    assert.equal(targetOf({ vehicleGroupId: 'g' }), 'vehicle_group')
-    assert.equal(targetOf({ operatorId: 'u' }), 'operator')
-    assert.isNull(targetOf({}))
-    assert.isNull(targetOf({ vehicleGroupId: 'g', operatorId: 'u' }))
-    assert.isNull(targetOf({ vehicleGroupId: null, operatorId: '' }))
-  })
-
-  test('client final : opérateur ou rôle sans gestion', ({ assert }) => {
-    assert.isTrue(isEndClient('operator', ['vehicle:read']))
-    assert.isTrue(isEndClient('viewer', ['vehicle:read', 'report:read']))
-    assert.isFalse(isEndClient('admin', ['vehicle:*']))
-    assert.isFalse(isEndClient('super_admin', ['*']))
-    assert.isFalse(isEndClient('manager', ['user:*']))
-    assert.isFalse(isEndClient('fleet', ['vehicle:write']))
-  })
-
-  test('souscription propre prioritaire sur celle de la flotte', ({ assert }) => {
-    assert.equal(accessScope(0), 'organization')
-    assert.equal(accessScope(1), 'operator')
   })
 })

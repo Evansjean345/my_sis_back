@@ -7,15 +7,14 @@ const ClientSubscriptionController = () =>
 /**
  * Souscriptions vues depuis une organisation :
  *   - `/access` : pages ouvertes au compte connecté (tout compte) ;
- *   - le reste : souscriptions des clients finaux, gérées par le distributeur
- *     (habilitations `subscription:read` / `subscription:write`).
+ *   - le reste : souscriptions des flottes de l'organisation, gérées par son
+ *     administrateur, client final (`subscription:read` / `subscription:write`).
  */
 export const subscriptionRoutes = () => {
   router
     .group(() => {
       router.get('/access', [SubscriptionAccessController, 'access'])
       router.get('/offers', [ClientSubscriptionController, 'offers'])
-      router.get('/operators', [ClientSubscriptionController, 'operators'])
       router.get('/', [ClientSubscriptionController, 'index'])
       router.post('/', [ClientSubscriptionController, 'store'])
       router.get('/:id', [ClientSubscriptionController, 'show'])
