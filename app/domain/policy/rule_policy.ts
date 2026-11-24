@@ -50,7 +50,7 @@ export type RuleOperator = (typeof RULE_OPERATORS)[number]
 
 export const RULE_OPERATORS_BY_FIELD: Record<RuleField, readonly RuleOperator[]> = {
   speed: ['gt', 'lt', 'eq', 'neq'],
-  speed_policy: ['eq'],
+  speed_policy: ['eq', 'neq'],
   zone: ['eq'],
   time: ['in', 'outside'],
   duration: ['gt', 'lt', 'eq', 'neq'],
@@ -190,14 +190,27 @@ export interface LatLng {
 /** Rayon minimal d'une zone circulaire (mètres). */
 export const MIN_CIRCLE_RADIUS_M = 50
 
+export type GeofenceKind = 'authorized' | 'forbidden'
+
+/**
+ * Événement surveillé par une zone, déduit de son TYPE :
+ *   - zone interdite → les règles se déclenchent à l'ENTRÉE ;
+ *   - zone autorisée → à la SORTIE.
+ * Les actions (alerte, notification…) se configurent dans le moteur de règles.
+ */
+export function geofenceAlerts(kind: GeofenceKind): {
+  alertOnEntry: boolean
+  alertOnExit: boolean
+} {
+  return { alertOnEntry: kind === 'forbidden', alertOnExit: kind === 'authorized' }
+}
+
 export function geofenceProblem(input: {
   name: string
   shape: 'circle' | 'polygon'
   center: LatLng | null
   radiusM: number | null
   points: readonly LatLng[]
-  alertOnEntry: boolean
-  alertOnExit: boolean
 }): string | null {
   if (!input.name.trim()) return 'Nom de la zone obligatoire.'
   if (
@@ -208,9 +221,6 @@ export function geofenceProblem(input: {
   }
   if (input.shape === 'polygon' && input.points.length < 3) {
     return 'Polygone : cliquez au moins 3 sommets sur la carte.'
-  }
-  if (!input.alertOnEntry && !input.alertOnExit) {
-    return 'Choisissez au moins une alerte (entrée ou sortie).'
   }
   return null
 }

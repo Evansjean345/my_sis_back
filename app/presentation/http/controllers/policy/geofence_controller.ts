@@ -1,13 +1,12 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
-import { geofenceProblem } from '#domain/policy/rule_policy'
+import { geofenceAlerts, geofenceProblem } from '#domain/policy/rule_policy'
 import { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
 import {
   findGeofenceDto,
   geofenceNameTaken,
   type GeofenceInput,
   listGeofences,
-  referencesOf,
   saveGeofence,
 } from '#infrastructure/persistence/repositories/rule_engine_repository'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
@@ -19,10 +18,13 @@ import { RuleEngineBase } from '#presentation/http/controllers/policy/rule_engin
  *  ZONES GÉOGRAPHIQUES — `/api/v1[/admin]/geofences`
  * =========================================================================
  *
- * Cercle (centre + rayon ≥ 50 m) ou polygone (3 sommets minimum), zone
- * autorisée (alerte à la sortie) ou interdite (alerte à l'entrée), véhicules
- * surveillés (aucun = tous ceux du client). Les règles « entrée / sortie de
- * zone » ne visent qu'une zone active réglée pour cet événement.
+ * Cercle (centre + rayon ≥ 50 m) ou polygone (3 sommets minimum), de type :
+ *   - autorisée : les règles se déclenchent à la SORTIE ;
+ *   - interdite : à l'ENTRÉE.
+ * L'événement surveillé est DÉDUIT du type (`geofenceAlerts`) : les
+ * `alertOnEntry` / `alertOnExit` envoyés sont ignorés. Une zone vaut pour tous
+ * les véhicules du client ; le ciblage d'un véhicule ou d'une flotte se fait
+ * dans le moteur de règles (cible des conditions), d'où `vehicleIds` toujours vide.
  */
 @inject()
 export default class GeofenceController extends RuleEngineBase {
@@ -84,19 +86,14 @@ export default class GeofenceController extends RuleEngineBase {
       radiusM: champs.shape === 'circle' ? (champs.radiusM ?? null) : null,
       points: champs.shape === 'polygon' ? (champs.points ?? []) : [],
       kind: champs.kind,
-      alertOnEntry: champs.alertOnEntry,
-      alertOnExit: champs.alertOnExit,
-      vehicleIds: [...new Set(champs.vehicleIds ?? [])],
+      ...geofenceAlerts(champs.kind),
+      vehicleIds: [],
       color: champs.color ?? '#2563eb',
       active: champs.active ?? true,
     }
     const probleme = geofenceProblem(input)
     if (probleme) return this.regle(ctx, 'E_VALIDATION', probleme)
     if (await geofenceNameTaken(organizationId, input.name, id)) return this.nomPris(ctx)
-    const refs = await referencesOf(organizationId)
-    if (input.vehicleIds.some((v) => !refs.vehicles.has(v))) {
-      return this.regle(ctx, 'E_VALIDATION', "Un véhicule choisi n'appartient pas à ce client.")
-    }
 
     const avant = id ? await findGeofenceDto(id) : null
     const zoneId = await this.enregistrer(ctx, () =>

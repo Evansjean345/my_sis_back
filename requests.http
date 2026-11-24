@@ -1080,6 +1080,8 @@ GET {{api}}/geofences
 Authorization: Bearer {{token}}
 
 ### zone circulaire (rayon ≥ 50 m) — polygone : "shape":"polygon","points":[{lat,lng}×3+]
+### L'événement surveillé dépend du type (migration 033) : interdite → entrée, autorisée → sortie.
+### alertOnEntry / alertOnExit / vehicleIds sont ignorés (zone = tous les véhicules du client).
 # @name createGeofence
 POST {{api}}/geofences
 Authorization: Bearer {{token}}
@@ -1090,10 +1092,7 @@ Content-Type: application/json
   "shape": "circle",
   "center": { "lat": 5.33, "lng": -4.02 },
   "radiusM": 400,
-  "kind": "authorized",
-  "alertOnEntry": false,
-  "alertOnExit": true,
-  "vehicleIds": []
+  "kind": "authorized"
 }
 
 ###

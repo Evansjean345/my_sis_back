@@ -32,6 +32,10 @@ export type Permission =
   | 'manageSchedules'
   | 'viewSubscriptions'
   | 'manageSubscriptions'
+  | 'viewGeofences'
+  | 'manageGeofences'
+  | 'viewRules'
+  | 'manageRules'
 
 /**
  * Matrice des rôles système : migration 016 (super_admin `*`, admin
@@ -72,13 +76,18 @@ const PERMISSION_MAP: Record<Permission, string> = {
    */
   manageSchedules: 'policy:write',
   /**
-   * Souscriptions des clients finaux de l'organisation : le distributeur
-   * (rôle système `admin`, `subscription:*` depuis la migration 030) les crée
-   * et les gère ; l'opérateur ne les voit pas (il lit son accès par
-   * `/subscriptions/access`, ouvert à tout compte).
+   * Souscriptions des flottes de l'organisation : son administrateur, client
+   * final (rôle système `admin`, `subscription:*`), les souscrit et les gère.
+   * Tout compte lit son accès par `/subscriptions/access`.
    */
   viewSubscriptions: 'subscription:read',
   manageSubscriptions: 'subscription:write',
+  /** Zones géographiques (moteur de règles, migration 032). */
+  viewGeofences: 'geofence:read',
+  manageGeofences: 'geofence:write',
+  /** Politiques de vitesse et règles : `policy:*` (admin, super_admin). */
+  viewRules: 'policy:read',
+  manageRules: 'policy:write',
 }
 
 /** Cache par instance d'utilisateur, donc par requête. */

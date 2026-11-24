@@ -34,8 +34,10 @@ export const geofenceValidator = vine.compile(
     radiusM: vine.number().min(0).max(100_000).nullable().optional(),
     points: vine.array(latLng()).maxLength(500).optional(),
     kind: vine.enum(['authorized', 'forbidden'] as const),
-    alertOnEntry: vine.boolean(),
-    alertOnExit: vine.boolean(),
+    /** Ignorés : l'événement surveillé est déduit du type de zone. */
+    alertOnEntry: vine.boolean().optional(),
+    alertOnExit: vine.boolean().optional(),
+    /** Ignoré : une zone vaut pour tous les véhicules du client. */
     vehicleIds: uuids().optional(),
     color: vine
       .string()

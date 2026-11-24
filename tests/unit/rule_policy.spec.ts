@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import {
+  geofenceAlerts,
   geofenceProblem,
   notificationChannels,
   ruleFieldsForEvent,
@@ -88,8 +89,6 @@ test.group('Zones et politiques de vitesse', () => {
     center: { lat: 5.3, lng: -4 },
     radiusM: 400,
     points: [],
-    alertOnEntry: false,
-    alertOnExit: true,
   }
 
   test('cercle de 50 m minimum, polygone de 3 sommets', ({ assert }) => {
@@ -99,7 +98,11 @@ test.group('Zones et politiques de vitesse', () => {
       geofenceProblem({ ...zone, shape: 'polygon', points: [zone.center] })!,
       /3 sommets/
     )
-    assert.match(geofenceProblem({ ...zone, alertOnExit: false })!, /au moins une alerte/)
+  })
+
+  test("l'événement surveillé dépend du type de zone", ({ assert }) => {
+    assert.deepEqual(geofenceAlerts('forbidden'), { alertOnEntry: true, alertOnExit: false })
+    assert.deepEqual(geofenceAlerts('authorized'), { alertOnEntry: false, alertOnExit: true })
   })
 
   test('politique : limite, zone ou véhicules selon la portée', ({ assert }) => {
