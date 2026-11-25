@@ -57,6 +57,10 @@ export const ORGANIZATION_OWNER_ROLE = 'admin'
  *   covers(['vehicle:*'], '*')             → false
  */
 //3 - Gestions des permissions
+/*
+Fonction de gestion des permissions
+action et gestion read create - update - delete
+*/
 export function covers(granted: readonly string[], required: string): boolean {
   if (granted.includes(PLATFORM_WILDCARD)) return true
   if (required === PLATFORM_WILDCARD) return false
@@ -77,12 +81,18 @@ export function missingPermissions(
 
 //5 - porté ou étendue du rôle dans l'organisation
 /** Règle ① — le rôle est-il utilisable dans l'organisation cible ? */
+/*
+Fonction de gestion de restriction au niveau d'une organization
+*/
 export function isRoleInScope(role: AssignableRole, targetOrganizationId: string): boolean {
   return role.organizationId === null || role.organizationId === targetOrganizationId
 }
 
 //6 - L'acteur ou l'utilisateur opère t'il au niveau de la plateforme
 /** L'acteur opère-t-il au niveau plateforme (toutes organisations) ? */
+/*
+Fonction de gestion au niveau de toute la platforme
+*/
 export function isPlatformOperator(actorPermissions: readonly string[]): boolean {
   return actorPermissions.includes(PLATFORM_WILDCARD)
 }

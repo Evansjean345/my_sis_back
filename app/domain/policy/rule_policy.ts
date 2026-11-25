@@ -10,6 +10,10 @@
  */
 
 /** Événements GPS normalisés qui déclenchent une règle. */
+/*
+types d'évènements liés à une règle
+*/
+//code_legacy/event_types
 export const EVENT_TYPES = [
   'overspeed',
   'geofence_exit',
@@ -18,21 +22,40 @@ export const EVENT_TYPES = [
   'power_cut',
   'disconnection',
   'sos',
-  'jamming',
-  'towing',
-  'tamper',
-  'harsh_driving',
+  'jamming', //broullaige
+  'towing', //remorquage
+  'tamper', //altérer
+  'harsh_driving', //conduite brutale
   'engine_start',
   'engine_stop',
 ] as const
 export type EventType = (typeof EVENT_TYPES)[number]
 
+/*
+critique / haut / moyen et faible
+*/
 export const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
 export type Severity = (typeof SEVERITIES)[number]
 
+//code_legacy/event_notification_channel
+/*
+envoi des notifications pour les évènements 
+sms / email / push
+ */
 export const NOTIFICATION_CHANNELS = ['sms', 'email', 'push'] as const
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
 
+//code_legacy/rule_fields
+/*
+moteur de règles pour les évènements
+speed
+speed_policy
+zone
+time
+schedule
+ignition
+vehicule
+*/
 export const RULE_FIELDS = [
   'speed',
   'speed_policy',
@@ -45,6 +68,15 @@ export const RULE_FIELDS = [
 ] as const
 export type RuleField = (typeof RULE_FIELDS)[number]
 
+/*
+condition de sévérité d'un évènements
+gt > greater than 
+lt < less than
+eq = equal
+neq != not equal
+in = inside
+outside = outside
+*/
 export const RULE_OPERATORS = ['gt', 'lt', 'eq', 'neq', 'in', 'outside'] as const
 export type RuleOperator = (typeof RULE_OPERATORS)[number]
 
@@ -60,6 +92,7 @@ export const RULE_OPERATORS_BY_FIELD: Record<RuleField, readonly RuleOperator[]>
 }
 
 /** Conditions acceptées par événement : celles qui peuvent réellement le produire. */
+//code_legacy/rule_fields
 const EVENT_RULE_FIELDS: Partial<Record<EventType, readonly RuleField[]>> = {
   overspeed: ['speed_policy'],
   geofence_exit: ['zone'],
@@ -67,14 +100,25 @@ const EVENT_RULE_FIELDS: Partial<Record<EventType, readonly RuleField[]>> = {
   schedule_violation: ['schedule'],
 }
 
+/*
+
+------------------------------------------------------------------------------------------------------
+Fonction dans rule_policy
+*/
+/*
+champs de règles pour les évènements
+*/
 export function ruleFieldsForEvent(event: EventType): readonly RuleField[] {
   return EVENT_RULE_FIELDS[event] ?? []
 }
 
 /** Événements toujours notifiés par push seul (masqués des formulaires de règle). */
+/*
+évènements notifiés par push notifications
+*/
 export const PUSH_ONLY_EVENT_TYPES: readonly EventType[] = [
-  'towing',
-  'sos',
+  'towing', //towing
+  'sos', //sos
   'jamming',
   'engine_stop',
   'harsh_driving',
@@ -83,6 +127,9 @@ export const PUSH_ONLY_EVENT_TYPES: readonly EventType[] = [
 ]
 
 /** Canaux d'une notification : push toujours, plus SMS / e-mail si l'événement le permet. */
+/*
+fonction pour envoyés soit des évènements par sms ou email
+*/
 export function notificationChannels(
   event: EventType,
   channels: readonly string[] = []
@@ -96,9 +143,16 @@ export function notificationChannels(
   ]
 }
 
+/*
+moteur de règles pour notifier les actions d'un évènements
+soit une alerte / une notification / un incident / une commande
+*/
 export const RULE_ACTION_TYPES = ['alert', 'notify', 'incident', 'command'] as const
 export type RuleActionType = (typeof RULE_ACTION_TYPES)[number]
 
+/*
+Ciblage pour soit toute l'organisation , le véhicule ou la flotte
+*/
 export type ConditionTarget =
   | { type: 'all' }
   | { type: 'vehicle'; id: string; label?: string }
@@ -124,6 +178,7 @@ const TIME_RANGE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
  * Zones visées par une condition `zone` : pour une SORTIE, plusieurs zones
  * (OU) ; sinon une seule.
  */
+//zone visé pour une condition ou une règle
 export function zoneIdsOf(trigger: EventType, condition: RuleConditionInput): string[] {
   if (trigger === 'geofence_exit') {
     const ids = condition.values?.length
@@ -146,11 +201,15 @@ export function ruleProblem(input: {
   conditions: readonly RuleConditionInput[]
   actions: readonly RuleActionInput[]
 }): string | null {
+  //condition pour choisir au moins une règle
   if (!input.name.trim()) return 'Nom de la règle obligatoire.'
+  //condition pour choisir au moins une action
   if (input.actions.length === 0) return 'Ajoutez au moins une action.'
+  //condition pour renseigner le type de chaque action
   if (input.actions.some((a) => a.type !== 'alert' && a.type !== 'notify' && !a.value.trim())) {
     return 'Renseignez le paramètre de chaque action.'
   }
+  //condition pour choisir la gravité d'une règle
   if (input.actions.some((a) => a.type === 'alert' && !SEVERITIES.includes(a.value as Severity))) {
     return 'Choisissez une gravité valide pour chaque alerte.'
   }
@@ -205,6 +264,7 @@ export function geofenceAlerts(kind: GeofenceKind): {
   return { alertOnEntry: kind === 'forbidden', alertOnExit: kind === 'authorized' }
 }
 
+//fonction utilitaire pour les géofence
 export function geofenceProblem(input: {
   name: string
   shape: 'circle' | 'polygon'
@@ -226,10 +286,11 @@ export function geofenceProblem(input: {
 }
 
 // ---------------------------------------------------- politiques de vitesse
-
+//porté de la vitesse sur une zone / global / vehicule
 export const SPEED_SCOPES = ['global', 'zone', 'vehicle'] as const
 export type SpeedScope = (typeof SPEED_SCOPES)[number]
 
+//choisissez une ploitique de vitesse
 export function speedPolicyProblem(input: {
   name: string
   scope: SpeedScope
