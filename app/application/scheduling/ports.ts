@@ -1,11 +1,18 @@
-import type { WeeklyWindow, ScheduleMode } from '#domain/scheduling/value_objects'
-import type { ScheduleAssignment, DesiredUsage, UsageCause } from '#domain/scheduling/usage_policy'
+import type { WeeklyWindow } from '#domain/scheduling/value_objects'
+import type {
+  EnforcementAction,
+  EnforcementEventKind,
+  EnforcementOutcome,
+} from '#domain/scheduling/code_legacy/schedule/schedule_enforcement'
+import type {
+  DesiredUsage,
+  UsageCause,
+} from '#domain/scheduling/code_legacy/schedule/schedule_usage'
 import type {
   ConfirmedEngineCommand,
-  EnforcementAction,
   EnforcementMemory,
-  EnforcementOutcome,
-} from '#domain/scheduling/enforcement_policy'
+  ScheduleAssignment,
+} from '#domain/scheduling/code_legacy/schedule/schedule_types'
 
 /**
  * =========================================================================
@@ -38,16 +45,13 @@ export interface ScheduleTargetView {
   id: string
   /** Immatriculation (véhicule) ou nom (groupe). */
   label: string
-  mode: ScheduleMode
   createdAt: Date
 }
 
 export interface AssignmentChange {
   /** Rattachés par cet appel. */
   applied: string[]
-  /** Déjà rattachés, mode modifié. */
-  updated: string[]
-  /** Déjà rattachés avec le même mode (idempotence). */
+  /** Déjà rattachés (idempotence). */
   unchanged: string[]
   /** Inconnus, supprimés, ou d'une AUTRE organisation. */
   rejected: string[]
@@ -75,30 +79,23 @@ export interface UsageScheduleRepository {
   vehiclesOf(scheduleId: string): Promise<ScheduleTargetView[]>
   groupsOf(scheduleId: string): Promise<ScheduleTargetView[]>
 
-  /** N'accepte que les véhicules vivants de `organizationId` ; upsert du mode. */
+  /** N'accepte que les véhicules vivants de `organizationId` ; idempotent. */
   attachVehicles(
     scheduleId: string,
     organizationId: string,
-    vehicleIds: string[],
-    mode: ScheduleMode
+    vehicleIds: string[]
   ): Promise<AssignmentChange>
   attachGroups(
     scheduleId: string,
     organizationId: string,
-    groupIds: string[],
-    mode: ScheduleMode
+    groupIds: string[]
   ): Promise<AssignmentChange>
 
   detachVehicle(scheduleId: string, vehicleId: string): Promise<boolean>
   detachGroup(scheduleId: string, groupId: string): Promise<boolean>
 
-  /** Véhicules vivants membres de ces groupes (simulation d'un calendrier de groupe). */
-  vehicleIdsOfGroups(groupIds: string[]): Promise<string[]>
-
   /** Calendriers d'un groupe de véhicules (écran du groupe). */
-  schedulesOfGroup(
-    groupId: string
-  ): Promise<Array<{ id: string; name: string; mode: ScheduleMode; isActive: boolean }>>
+  schedulesOfGroup(groupId: string): Promise<Array<{ id: string; name: string; isActive: boolean }>>
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +113,6 @@ export interface EnforcementTarget {
   state: EnforcementState | null
   lastConfirmed: ConfirmedEngineCommand | null
   commandInFlight: boolean
-  lastOperatorCommandAt: Date | null
 }
 
 /** Ligne de `vehicle_schedule_states`. */
@@ -153,15 +149,6 @@ export interface EnforcementStateStore {
 // Journal d'exécution (`schedule_enforcement_events`) et analyses
 // ---------------------------------------------------------------------------
 
-export type EnforcementEventKind =
-  | 'transition'
-  | 'dispatched'
-  | 'refused'
-  | 'completed'
-  | 'overridden'
-  | 'manual_cut_kept'
-  | 'already_immobilized'
-
 /** Un événement significatif du moteur, rattaché au calendrier décisif. */
 export interface EnforcementEvent {
   organizationId: string
@@ -179,7 +166,7 @@ export interface EnforcementEvent {
   occurredAt: Date
 }
 
-/** Écriture du journal — par le seul moteur, jamais en simulation. */
+/** Écriture du journal — par le seul moteur. */
 export interface EnforcementEventLog {
   record(events: EnforcementEvent[]): Promise<void>
 }
@@ -215,7 +202,6 @@ export interface ScheduleAnalyticsDay {
   restore: CommandTally
   refusals: number
   refusedVehicles: number
-  overrides: number
   manualCutsKept: number
   transitionsToImmobilized: number
   transitionsToFree: number
@@ -231,7 +217,6 @@ export interface ScheduleAnalytics {
     restore: CommandTally
     refusals: number
     refusedVehicles: number
-    overrides: number
     manualCutsKept: number
     alreadyImmobilized: number
     transitionsToImmobilized: number
@@ -252,7 +237,6 @@ export interface ScheduleAnalytics {
     restores: number
     failures: number
     refusals: number
-    overrides: number
   }>
   schedules: Array<{
     id: string
@@ -262,11 +246,10 @@ export interface ScheduleAnalytics {
     dispatched: number
     acknowledged: number
     refusals: number
-    overrides: number
     completed: number
     medianExecutionSeconds: number | null
   }>
-  /** Premier événement journalisé : avant, refus et dérogations ne sont pas connus. */
+  /** Premier événement journalisé : avant, les refus ne sont pas connus. */
   journalSince: string | null
 }
 
@@ -307,4 +290,4 @@ export interface EngineCommandIssuer {
   }): Promise<IssueOutcome>
 }
 
-export type { DesiredUsage }
+export type { DesiredUsage, EnforcementEventKind }

@@ -10,6 +10,7 @@ import {
   Reason,
   Speed,
   VehicleId,
+  EXPIRABLE_STATUSES,
   IN_FLIGHT_STATUSES,
   type CommandOrigin,
   type CommandStatus,
@@ -100,10 +101,10 @@ export class LucidDeviceCommandRepository implements DeviceCommandRepository {
     }
   }
 
-  //double avlidation à supprimer
+  /** Commandes pas encore remises au boîtier dont le délai est dépassé. */
   async findExpirable(now: Date, limit: number): Promise<DeviceCommand[]> {
     const rows = await DeviceCommandModel.query()
-      .whereIn('status', ['approved', 'queued'])
+      .whereIn('status', [...EXPIRABLE_STATUSES])
       .where('expires_at', '<', DateTime.fromJSDate(now).toSQL()!)
       .limit(limit)
     return rows.map((r) => this.toDomain(r))

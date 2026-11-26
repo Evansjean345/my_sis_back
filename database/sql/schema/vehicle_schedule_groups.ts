@@ -7,12 +7,10 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 
 export class VehicleScheduleGroupSchema extends BaseModel {
-  static $columns = ['createdAt', 'mode', 'usageScheduleId', 'vehicleGroupId'] as const
+  static $columns = ['createdAt', 'usageScheduleId', 'vehicleGroupId'] as const
   $columns = VehicleScheduleGroupSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
-  @column()
-  declare mode: string
   @column()
   declare usageScheduleId: string
   @column({ isPrimary: true })

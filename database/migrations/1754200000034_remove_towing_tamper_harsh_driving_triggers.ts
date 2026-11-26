@@ -7,7 +7,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  *
  * `towing` (remorquage), `tamper` (sabotage du boîtier) et `harsh_driving`
  * (conduite brutale) ne déclenchent plus de règle (référentiel
- * `domain/code_legacy/rule/rule_event_types.ts`).
+ * `domain/policy/code_legacy/rule/rule_event_types.ts`).
  *
  * Les règles qui les utilisaient ne peuvent plus exister avec la nouvelle
  * contrainte : elles sont supprimées, avec leurs actions, cibles et

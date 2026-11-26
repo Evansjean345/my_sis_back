@@ -6,7 +6,7 @@ import type {
   ScheduleWindowView,
   UsageScheduleRepository,
 } from '#application/scheduling/ports'
-import type { ScheduleMode, WeeklyWindow } from '#domain/scheduling/value_objects'
+import type { WeeklyWindow } from '#domain/scheduling/value_objects'
 
 /** Identifiant neutre pour un `whereIn` vide : évite un `IN ()` invalide en SQL. */
 const AUCUN = '00000000-0000-0000-0000-000000000000'
@@ -44,7 +44,7 @@ function hhmm(value: string): string {
  *
  *  - ATOMICITÉ des plages : un calendrier et sa semaine s'écrivent dans la
  *    même transaction. Un calendrier publié sans ses plages immobiliserait
- *    toute sa flotte (`allowed` sans plage = jamais autorisé).
+ *    toute sa flotte (sans plage = jamais autorisé).
  *
  *  - CLOISONNEMENT des rattachements : les identifiants candidats sont
  *    filtrés sur l'organisation du calendrier. Un véhicule d'un autre client
@@ -143,19 +143,17 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
   attachVehicles(
     scheduleId: string,
     organizationId: string,
-    vehicleIds: string[],
-    mode: ScheduleMode
+    vehicleIds: string[]
   ): Promise<AssignmentChange> {
-    return this.attach(VEHICLES, scheduleId, organizationId, vehicleIds, mode)
+    return this.attach(VEHICLES, scheduleId, organizationId, vehicleIds)
   }
 
   attachGroups(
     scheduleId: string,
     organizationId: string,
-    groupIds: string[],
-    mode: ScheduleMode
+    groupIds: string[]
   ): Promise<AssignmentChange> {
-    return this.attach(GROUPS, scheduleId, organizationId, groupIds, mode)
+    return this.attach(GROUPS, scheduleId, organizationId, groupIds)
   }
 
   detachVehicle(scheduleId: string, vehicleId: string): Promise<boolean> {
@@ -166,17 +164,6 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
     return this.detach(GROUPS, scheduleId, groupId)
   }
 
-  async vehicleIdsOfGroups(groupIds: string[]): Promise<string[]> {
-    if (groupIds.length === 0) return []
-    const rows = await db
-      .from('vehicle_group_members as m')
-      .innerJoin('vehicles as v', 'v.id', 'm.vehicle_id')
-      .whereIn('m.vehicle_group_id', groupIds)
-      .whereNull('v.deleted_at')
-      .distinct('m.vehicle_id')
-    return rows.map((r) => r.vehicle_id as string)
-  }
-
   async schedulesOfGroup(groupId: string) {
     const rows = await db
       .from('vehicle_schedule_groups as p')
@@ -184,11 +171,10 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
       .where('p.vehicle_group_id', groupId)
       .whereNull('s.deleted_at')
       .orderBy('s.name')
-      .select('s.id', 's.name', 'p.mode', 's.is_active')
+      .select('s.id', 's.name', 's.is_active')
     return rows.map((r) => ({
       id: r.id as string,
       name: r.name as string,
-      mode: r.mode as ScheduleMode,
       isActive: Boolean(r.is_active),
     }))
   }
@@ -221,11 +207,10 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
       .where('p.usage_schedule_id', scheduleId)
       .whereNull('x.deleted_at')
       .orderBy(`x.${t.label}`)
-      .select('x.id', `x.${t.label} as label`, 'p.mode', 'p.created_at')
+      .select('x.id', `x.${t.label} as label`, 'p.created_at')
     return rows.map((r) => ({
       id: r.id,
       label: r.label,
-      mode: r.mode as ScheduleMode,
       createdAt: r.created_at,
     }))
   }
@@ -234,8 +219,7 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
     t: TargetTables,
     scheduleId: string,
     organizationId: string,
-    ids: string[],
-    mode: ScheduleMode
+    ids: string[]
   ): Promise<AssignmentChange> {
     const candidats = [...new Set(ids)]
 
@@ -251,33 +235,23 @@ export class LucidUsageScheduleRepository implements UsageScheduleRepository {
       .from(t.pivot)
       .where('usage_schedule_id', scheduleId)
       .whereIn(t.column, eligibleIds.length > 0 ? eligibleIds : [AUCUN])
-      .select(`${t.column} as id`, 'mode')
-    const modeActuel = new Map(existants.map((r) => [r.id as string, r.mode as string]))
+      .select(`${t.column} as id`)
+    const dejaRattaches = new Set(existants.map((r) => r.id as string))
 
-    const applied = eligibleIds.filter((id) => !modeActuel.has(id))
-    const updated = eligibleIds.filter((id) => modeActuel.has(id) && modeActuel.get(id) !== mode)
-    const unchanged = eligibleIds.filter((id) => modeActuel.get(id) === mode)
+    const applied = eligibleIds.filter((id) => !dejaRattaches.has(id))
+    const unchanged = eligibleIds.filter((id) => dejaRattaches.has(id))
 
-    await db.transaction(async (trx) => {
-      if (applied.length > 0) {
-        await trx
-          .table(t.pivot)
-          .multiInsert(
-            applied.map((id) => ({ [t.column]: id, usage_schedule_id: scheduleId, mode }))
-          )
-      }
-      if (updated.length > 0) {
-        await trx
-          .from(t.pivot)
-          .where('usage_schedule_id', scheduleId)
-          .whereIn(t.column, updated)
-          .update({ mode })
-      }
-    })
+    if (applied.length > 0) {
+      // ON CONFLICT : deux rattachements simultanés du même véhicule restent idempotents.
+      await db
+        .table(t.pivot)
+        .multiInsert(applied.map((id) => ({ [t.column]: id, usage_schedule_id: scheduleId })))
+        .onConflict([t.column, 'usage_schedule_id'])
+        .ignore()
+    }
 
     return {
       applied,
-      updated,
       unchanged,
       rejected: candidats.filter((id) => !eligibleIds.includes(id)),
     }

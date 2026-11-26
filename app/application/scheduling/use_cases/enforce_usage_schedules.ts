@@ -3,33 +3,33 @@ import type { AuditLogger, Clock, UseCase } from '#application/ports'
 import type {
   CommandReconciler,
   EngineCommandIssuer,
+  EnforcementEvent,
+  EnforcementEventLog,
   EnforcementReader,
   EnforcementState,
   EnforcementStateStore,
   EnforcementTarget,
   IssueOutcome,
-  EnforcementEvent,
-  EnforcementEventLog,
 } from '#application/scheduling/ports'
-
 import {
-  enforcementReason,
-  resolveUsage,
-  type DesiredUsage,
-  type UsageCause,
-} from '#domain/scheduling/usage_policy'
-
-import {
-  decideEnforcement,
+  DISPATCH_FAILED_CODE,
+  ONE_TIME_OUTCOMES,
+  TRANSIENT_REFUSAL_CODES,
   type EnforcementAction,
   type EnforcementOutcome,
-} from '#domain/scheduling/enforcement_policy'
+} from '#domain/scheduling/code_legacy/schedule/schedule_enforcement'
+import type {
+  DesiredUsage,
+  UsageCause,
+} from '#domain/scheduling/code_legacy/schedule/schedule_usage'
+import type {
+  EnforcementDecision,
+  UsageVerdict,
+} from '#domain/scheduling/code_legacy/schedule/schedule_types'
+import { enforcementReason, resolveUsage } from '#domain/scheduling/usage_policy'
+import { decideEnforcement } from '#domain/scheduling/enforcement_policy'
 
 export interface EnforceUsageSchedulesInput {
-  /** Simulation : rien n'est émis ni écrit. */
-  dryRun?: boolean
-  /** Instant d'évaluation — en simulation uniquement (« que se passerait-il lundi à 6 h ? »). */
-  at?: Date
   vehicleIds?: string[]
   organizationId?: string
 }
@@ -52,7 +52,6 @@ export interface EnforcementReportEntry {
 
 export interface EnforcementReport {
   evaluatedAt: Date
-  dryRun: boolean
   evaluated: number
   dispatched: number
   refused: number
@@ -66,33 +65,24 @@ export interface EnforcementSettings {
   backoffSeconds: number
 }
 
-/**
- * Refus PASSAGERS : la situation se règle d'elle-même, on retente vite.
- * Tout autre refus (immobilisation désactivée sur le véhicule, pas de
- * relais, interrupteur général coupé) attend `backoffSeconds`.
- */
-const TRANSIENT_ERRORS = new Set([
-  'E_VEHICLE_IN_MOTION',
-  'E_UNSAFE_SPEED',
-  'E_NO_POSITION',
-  'E_STALE_POSITION',
-  'E_COMMAND_IN_FLIGHT',
-  'E_CONCURRENT_MODIFICATION',
-])
+const REFUS_PASSAGERS: ReadonlySet<string> = new Set(TRANSIENT_REFUSAL_CODES)
+const ISSUES_PONCTUELLES: ReadonlySet<EnforcementOutcome> = new Set(ONE_TIME_OUTCOMES)
 
 /**
  * =========================================================================
- *  CAS D'USAGE — Appliquer les calendriers d'utilisation au moteur
+ *  CAS D'USAGE — Appliquer automatiquement les plages horaires au moteur
  * =========================================================================
  *
  * Un passage = pour chaque véhicule concerné :
  *
  *   calendriers ──resolveUsage──▶ verdict (libre / immobilisé)
  *   verdict + mémoire + faits ──decideEnforcement──▶ action (cut / restore / rien)
- *   action ──EngineCommandIssuer──▶ mêmes cas d'usage que l'opérateur
+ *   action ──EngineCommandIssuer──▶ mêmes garde-fous que l'opérateur (CM-07, CM-09…)
  *
+ * Aucune intervention humaine n'est attendue ni prise en compte : un véhicule
+ * hors de ses plages est coupé dès que le garde-fou de vitesse le permet.
  * Toutes les règles vivent dans le domaine (`domain/scheduling`) ; ce cas
- * d'usage orchestre, persiste la mémoire et trace les transitions.
+ * d'usage orchestre, persiste la mémoire et journalise.
  *
  * Un véhicule en erreur n'interrompt jamais le passage : la flotte d'un
  * client ne doit pas rester ouverte parce que le boîtier d'un autre ne
@@ -117,14 +107,10 @@ export class EnforceUsageSchedules implements UseCase<
   async execute(
     input: EnforceUsageSchedulesInput = {}
   ): Promise<Result<EnforcementReport, DomainError>> {
-    const dryRun = Boolean(input.dryRun)
-    // Un instant arbitraire n'a de sens qu'en simulation : en réel, on agit MAINTENANT.
-    const now = dryRun && input.at ? input.at : this.clock.now()
+    const now = this.clock.now()
 
-    if (!dryRun) {
-      // Les résultats flespi d'abord : une coupure acquittée doit être vue comme telle.
-      await this.reconciler.syncAll().catch((err) => this.onError(err, '*'))
-    }
+    // Les résultats flespi d'abord : une coupure acquittée doit être vue comme telle.
+    await this.reconciler.syncAll().catch((err) => this.onError(err, '*'))
 
     const targets = await this.reader.listTargets({
       vehicleIds: input.vehicleIds,
@@ -133,7 +119,6 @@ export class EnforceUsageSchedules implements UseCase<
 
     const report: EnforcementReport = {
       evaluatedAt: now,
-      dryRun,
       evaluated: targets.length,
       dispatched: 0,
       refused: 0,
@@ -142,7 +127,7 @@ export class EnforceUsageSchedules implements UseCase<
 
     for (const target of targets) {
       try {
-        const entry = await this.enforce(target, now, dryRun)
+        const entry = await this.enforce(target, now)
         if (entry.action && entry.commandStatus && !entry.errorCode) report.dispatched++
         if (entry.action && entry.errorCode) report.refused++
         report.entries.push(entry)
@@ -153,28 +138,22 @@ export class EnforceUsageSchedules implements UseCase<
     return Ok(report)
   }
 
-  private async enforce(
-    target: EnforcementTarget,
-    now: Date,
-    dryRun: boolean
-  ): Promise<EnforcementReportEntry> {
+  private async enforce(target: EnforcementTarget, now: Date): Promise<EnforcementReportEntry> {
     const verdict = resolveUsage(target.assignments, now)
     const decision = decideEnforcement({
       desired: verdict.state,
       previous: target.state,
       lastConfirmed: target.lastConfirmed,
       commandInFlight: target.commandInFlight,
-      lastOperatorCommandAt: target.lastOperatorCommandAt,
       now,
     })
 
     const previous = target.state
-    let attempts =
-      decision.transition || !decision.memory.pendingAction ? 0 : (previous?.attempts ?? 0)
+    let attempts = decision.resumed ? (previous?.attempts ?? 0) : 0
     let nextAttemptAt = decision.memory.nextAttemptAt
     let issued: IssueOutcome | null = null
 
-    if (decision.action && !dryRun) {
+    if (decision.action) {
       issued = await this.issuer.issue({
         action: decision.action,
         vehicleId: target.vehicleId,
@@ -182,48 +161,23 @@ export class EnforceUsageSchedules implements UseCase<
         reason: enforcementReason(verdict, decision.action),
       })
       attempts += 1
-      const passager = issued.errorCode ? TRANSIENT_ERRORS.has(issued.errorCode) : true
+      const passager = issued.errorCode ? REFUS_PASSAGERS.has(issued.errorCode) : true
       const delai = passager ? this.settings.retryIntervalSeconds : this.settings.backoffSeconds
       nextAttemptAt = new Date(now.getTime() + delai * 1000)
     }
 
-    const state: EnforcementState = {
-      vehicleId: target.vehicleId,
-      organizationId: target.organizationId,
-      desired: decision.memory.desired,
-      cause: verdict.cause,
-      scheduleId: verdict.decisive?.scheduleId ?? null,
-      pendingAction: decision.memory.pendingAction,
-      pendingSince: decision.memory.pendingSince,
-      nextAttemptAt: decision.memory.pendingAction ? nextAttemptAt : null,
-      attempts,
-      lastErrorCode: issued
-        ? issued.errorCode
-        : decision.action
-          ? null
-          : (previous?.lastErrorCode ?? null),
-      lastErrorMessage: issued
-        ? issued.errorMessage
-        : decision.action
-          ? null
-          : (previous?.lastErrorMessage ?? null),
-      lastCommandId: issued?.commandId ?? previous?.lastCommandId ?? null,
-      lastOutcome: decision.outcome,
-      evaluatedAt: now,
-    }
+    const state = nextState({ target, verdict, decision, attempts, nextAttemptAt, issued, now })
 
-    if (!dryRun) {
-      if (hasChanged(previous, state)) await this.store.save(state)
-      const journal = journalEvents({ target, verdict, decision, previous, issued, now })
-      if (journal.length > 0) {
-        // Au mieux, comme l'audit : un journal indisponible ne doit pas empêcher une coupure.
-        await this.events.record(journal).catch((err) => this.onError(err, target.vehicleId))
-      }
-      if (decision.transition || ['overridden', 'manual_cut_kept'].includes(decision.outcome)) {
-        await this.trace(target, state, verdict.decisive?.scheduleName ?? null).catch((err) =>
-          this.onError(err, target.vehicleId)
-        )
-      }
+    if (hasChanged(previous, state)) await this.store.save(state)
+    const journal = journalEvents({ target, verdict, decision, previous, issued, now })
+    if (journal.length > 0) {
+      // Au mieux, comme l'audit : un journal indisponible ne doit pas empêcher une coupure.
+      await this.events.record(journal).catch((err) => this.onError(err, target.vehicleId))
+    }
+    if (decision.transition || decision.outcome === 'manual_cut_kept') {
+      await this.trace(target, state, verdict.decisive?.scheduleName ?? null).catch((err) =>
+        this.onError(err, target.vehicleId)
+      )
     }
 
     const source = verdict.decisive?.source
@@ -274,6 +228,46 @@ export class EnforceUsageSchedules implements UseCase<
   }
 }
 
+/** Mémoire du moteur après ce passage. */
+function nextState(input: {
+  target: EnforcementTarget
+  verdict: UsageVerdict
+  decision: EnforcementDecision
+  attempts: number
+  nextAttemptAt: Date | null
+  issued: IssueOutcome | null
+  now: Date
+}): EnforcementState {
+  const { target, verdict, decision, issued, now } = input
+  const previous = target.state
+  // Une nouvelle tentative efface l'erreur précédente ; sinon on garde la dernière connue.
+  const garderErreur = !issued && !decision.action
+  return {
+    vehicleId: target.vehicleId,
+    organizationId: target.organizationId,
+    desired: decision.memory.desired,
+    cause: verdict.cause,
+    scheduleId: verdict.decisive?.scheduleId ?? null,
+    pendingAction: decision.memory.pendingAction,
+    pendingSince: decision.memory.pendingSince,
+    nextAttemptAt: decision.memory.pendingAction ? input.nextAttemptAt : null,
+    attempts: input.attempts,
+    lastErrorCode: issued
+      ? issued.errorCode
+      : garderErreur
+        ? (previous?.lastErrorCode ?? null)
+        : null,
+    lastErrorMessage: issued
+      ? issued.errorMessage
+      : garderErreur
+        ? (previous?.lastErrorMessage ?? null)
+        : null,
+    lastCommandId: issued?.commandId ?? previous?.lastCommandId ?? null,
+    lastOutcome: decision.outcome,
+    evaluatedAt: now,
+  }
+}
+
 /**
  * Événements à journaliser pour ce passage — la matière des analyses :
  *
@@ -284,8 +278,8 @@ export class EnforceUsageSchedules implements UseCase<
  */
 function journalEvents(input: {
   target: EnforcementTarget
-  verdict: ReturnType<typeof resolveUsage>
-  decision: ReturnType<typeof decideEnforcement>
+  verdict: UsageVerdict
+  decision: EnforcementDecision
   previous: EnforcementState | null
   issued: IssueOutcome | null
   now: Date
@@ -295,7 +289,7 @@ function journalEvents(input: {
   const base = {
     organizationId: target.organizationId,
     vehicleId: target.vehicleId,
-    // Sortie de plage : le verdict « libre » n'a plus de calendrier décisif, on garde celui qui coupait.
+    // Retour en plage : on garde le calendrier qui coupait si le verdict n'en désigne plus.
     scheduleId: verdict.decisive?.scheduleId ?? previous?.scheduleId ?? null,
     vehicleGroupId: source?.type === 'group' ? source.groupId : null,
     desired: decision.memory.desired,
@@ -309,15 +303,10 @@ function journalEvents(input: {
   const out: EnforcementEvent[] = []
   if (decision.transition) out.push({ ...base, kind: 'transition' })
 
-  if (
-    decision.outcome === 'completed' ||
-    decision.outcome === 'overridden' ||
-    decision.outcome === 'manual_cut_kept' ||
-    decision.outcome === 'already_immobilized'
-  ) {
+  if (ISSUES_PONCTUELLES.has(decision.outcome)) {
     out.push({
       ...base,
-      kind: decision.outcome,
+      kind: decision.outcome as EnforcementEvent['kind'],
       action: previous?.pendingAction ?? null,
       pendingSince: previous?.pendingSince ?? null,
     })
@@ -325,7 +314,7 @@ function journalEvents(input: {
 
   if (issued && decision.action) {
     const emise =
-      issued.commandId !== null && (!issued.errorCode || issued.errorCode === 'E_DISPATCH_FAILED')
+      issued.commandId !== null && (!issued.errorCode || issued.errorCode === DISPATCH_FAILED_CODE)
     out.push({
       ...base,
       kind: emise ? 'dispatched' : 'refused',

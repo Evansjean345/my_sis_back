@@ -1,5 +1,22 @@
 import { Err, Ok, ValueObject, type Result } from '#domain/kernel'
 import {
+  DAY_LABELS,
+  FIRST_DAY_OF_WEEK,
+  INTL_WEEKDAYS,
+  LAST_DAY_OF_WEEK,
+  type DayOfWeek,
+} from '#domain/scheduling/code_legacy/schedule/schedule_days'
+import {
+  SECONDS_PER_DAY,
+  SECONDS_PER_HOUR,
+  TIME_OF_DAY_PATTERN,
+} from '#domain/scheduling/code_legacy/schedule/schedule_time'
+import type {
+  LocalClock,
+  WeeklyWindowInput,
+  WeeklyWindowJson,
+} from '#domain/scheduling/code_legacy/schedule/schedule_types'
+import {
   InvalidScheduleWindowError,
   InvalidTimezoneError,
   OverlappingScheduleWindowsError,
@@ -7,8 +24,11 @@ import {
 
 /**
  * =========================================================================
- *  OBJETS-VALEURS DE LA PLANIFICATION
+ *  OBJETS-VALEURS DES PLAGES HORAIRES
  * =========================================================================
+ *
+ * Fonctions et objet-valeur seulement : jours, heures, interfaces et limites
+ * vivent dans `code_legacy/schedule`.
  *
  * Aucune dépendance (ni Luxon, ni base) : la conversion de fuseau horaire
  * passe par `Intl`, fourni par le runtime. C'est ce qui permet de tester
@@ -16,48 +36,8 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Mode d'application d'un calendrier
+// Heures
 // ---------------------------------------------------------------------------
-/**
- *  allowed    le véhicule ne peut rouler QUE pendant les plages ;
- *             hors plage → immobilisation.
- *  forbidden  le véhicule ne doit PAS rouler pendant les plages ;
- *             dans la plage → immobilisation.
- *
- * Aligné sur les CHECK de `vehicle_schedules` et `vehicle_schedule_groups`.
- */
-/*
-schedule mode sera simplement allowed 
-on supprime le mode non autorisé
-*/
-export const SCHEDULE_MODES = ['allowed', 'forbidden'] as const
-export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
-
-// ---------------------------------------------------------------------------
-// Jours et heures
-// ---------------------------------------------------------------------------
-/**
- * Jour de la semaine : 0 = dimanche … 6 = samedi.
- *
- * Convention de PostgreSQL (`EXTRACT(DOW FROM …)`) et de `Date#getDay()`,
- * déjà posée par le CHECK `ck_schedule_windows_dow` (0-6). Luxon numérote
- * 1 = lundi … 7 = dimanche : ne jamais mélanger les deux.
- */
-/*
-schedule day à mettre dans un fichier
-*/
-export const DAY_LABELS = [
-  'dimanche',
-  'lundi',
-  'mardi',
-  'mercredi',
-  'jeudi',
-  'vendredi',
-  'samedi',
-] as const
-
-const SECONDS_PER_DAY = 86_400
-const TIME_OF_DAY = /^([01]\d|2[0-4]):([0-5]\d)(?::([0-5]\d))?$/
 
 /**
  * `08:30` ou `08:30:00` → secondes depuis minuit.
@@ -65,17 +45,17 @@ const TIME_OF_DAY = /^([01]\d|2[0-4]):([0-5]\d)(?::([0-5]\d))?$/
  * « jusqu'à minuit » malgré le CHECK `start_time < end_time`.
  */
 export function parseTimeOfDay(raw: string): number | null {
-  const m = TIME_OF_DAY.exec((raw ?? '').trim())
+  const m = TIME_OF_DAY_PATTERN.exec((raw ?? '').trim())
   if (!m) return null
   const [h, min, s] = [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)]
   if (h === 24 && (min !== 0 || s !== 0)) return null
-  return h * 3600 + min * 60 + s
+  return h * SECONDS_PER_HOUR + min * 60 + s
 }
 
 /** Secondes depuis minuit → `HH:MM` (ou `HH:MM:SS` si les secondes comptent). */
 export function formatTimeOfDay(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
+  const h = Math.floor(seconds / SECONDS_PER_HOUR)
+  const m = Math.floor((seconds % SECONDS_PER_HOUR) / 60)
   const s = seconds % 60
   const hm = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
   return s === 0 ? hm : `${hm}:${String(s).padStart(2, '0')}`
@@ -84,20 +64,15 @@ export function formatTimeOfDay(seconds: number): string {
 /** Secondes depuis minuit → `HH:MM:SS`, format du type SQL `time`. */
 function sqlTime(seconds: number): string {
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`
+  const h = Math.floor(seconds / SECONDS_PER_HOUR)
+  const m = Math.floor((seconds % SECONDS_PER_HOUR) / 60)
+  return `${pad(h)}:${pad(m)}:${pad(seconds % 60)}`
 }
 
 // ---------------------------------------------------------------------------
 // Fuseau horaire et heure locale
 // ---------------------------------------------------------------------------
 
-/** Heure murale d'un instant dans un fuseau donné. */
-export interface LocalClock {
-  readonly dayOfWeek: number
-  readonly secondOfDay: number
-}
-
-const WEEKDAYS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 const formatters = new Map<string, Intl.DateTimeFormat>()
 
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
@@ -141,14 +116,25 @@ export function localClock(instant: Date, timeZone: string): LocalClock {
   const parts = formatterFor(timeZone).formatToParts(instant)
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '0'
   return {
-    dayOfWeek: WEEKDAYS[get('weekday')] ?? 0,
-    secondOfDay: Number(get('hour')) * 3600 + Number(get('minute')) * 60 + Number(get('second')),
+    dayOfWeek: INTL_WEEKDAYS[get('weekday')] ?? FIRST_DAY_OF_WEEK,
+    secondOfDay:
+      Number(get('hour')) * SECONDS_PER_HOUR + Number(get('minute')) * 60 + Number(get('second')),
   }
 }
 
 // ---------------------------------------------------------------------------
 // Fenêtre hebdomadaire
 // ---------------------------------------------------------------------------
+
+export function isDayOfWeek(value: unknown): value is DayOfWeek {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= FIRST_DAY_OF_WEEK &&
+    value <= LAST_DAY_OF_WEEK
+  )
+}
+
 /**
  * Plage [début, fin[ d'un jour de la semaine.
  *
@@ -157,21 +143,17 @@ export function localClock(instant: Date, timeZone: string): LocalClock {
  * (`start_time < end_time`) et c'est aussi ce qui garde le calcul trivial.
  */
 export class WeeklyWindow extends ValueObject<{
-  dayOfWeek: number
+  dayOfWeek: DayOfWeek
   startSecond: number
   endSecond: number
 }> {
-  private constructor(dayOfWeek: number, startSecond: number, endSecond: number) {
+  private constructor(dayOfWeek: DayOfWeek, startSecond: number, endSecond: number) {
     super({ dayOfWeek, startSecond, endSecond })
   }
 
-  static create(input: {
-    dayOfWeek: number
-    startTime: string
-    endTime: string
-  }): Result<WeeklyWindow> {
+  static create(input: WeeklyWindowInput): Result<WeeklyWindow> {
     const { dayOfWeek } = input
-    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+    if (!isDayOfWeek(dayOfWeek)) {
       return Err(
         new InvalidScheduleWindowError(
           'Le jour doit être compris entre 0 (dimanche) et 6 (samedi)',
@@ -204,10 +186,14 @@ export class WeeklyWindow extends ValueObject<{
 
   /** Relecture depuis la base : valeurs déjà bornées par les CHECK SQL. */
   static trusted(dayOfWeek: number, startTime: string, endTime: string): WeeklyWindow {
-    return new WeeklyWindow(dayOfWeek, parseTimeOfDay(startTime) ?? 0, parseTimeOfDay(endTime) ?? 0)
+    return new WeeklyWindow(
+      dayOfWeek as DayOfWeek,
+      parseTimeOfDay(startTime) ?? 0,
+      parseTimeOfDay(endTime) ?? 0
+    )
   }
 
-  get dayOfWeek(): number {
+  get dayOfWeek(): DayOfWeek {
     return this.props.dayOfWeek
   }
   get startTime(): string {
@@ -243,7 +229,7 @@ export class WeeklyWindow extends ValueObject<{
     }
   }
 
-  toJSON() {
+  toJSON(): WeeklyWindowJson {
     return { dayOfWeek: this.dayOfWeek, startTime: this.startTime, endTime: this.endTime }
   }
 
@@ -256,13 +242,11 @@ export class WeeklyWindow extends ValueObject<{
  * Valide un jeu complet de fenêtres : chacune, puis l'absence de
  * chevauchement entre fenêtres du même jour.
  *
- * Un jeu vide est accepté : un calendrier `allowed` sans aucune plage
- * immobilise en permanence, un `forbidden` sans plage n'a aucun effet —
- * c'est cohérent, et utile pour préparer un calendrier avant de le remplir.
+ * Un jeu vide est accepté : un calendrier sans aucune plage immobilise en
+ * permanence les véhicules qui le suivent. Utile pour préparer un calendrier
+ * inactif avant de le remplir.
  */
-export function validateWeeklyWindows(
-  raw: ReadonlyArray<{ dayOfWeek: number; startTime: string; endTime: string }>
-): Result<WeeklyWindow[]> {
+export function validateWeeklyWindows(raw: readonly WeeklyWindowInput[]): Result<WeeklyWindow[]> {
   const windows: WeeklyWindow[] = []
   for (const r of raw) {
     const w = WeeklyWindow.create(r)

@@ -19,7 +19,6 @@ export const usageScheduleRoutes = () => {
       router.patch('/:id', [UsageScheduleController, 'update'])
       router.delete('/:id', [UsageScheduleController, 'destroy'])
       router.put('/:id/windows', [UsageScheduleController, 'replaceWindows'])
-      router.get('/:id/preview', [UsageScheduleController, 'preview'])
 
       router.get('/:id/vehicles', [UsageScheduleController, 'vehicles'])
       router.post('/:id/vehicles', [UsageScheduleController, 'attachVehicles'])

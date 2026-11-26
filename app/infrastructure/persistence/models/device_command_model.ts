@@ -9,9 +9,6 @@ import { DateTime } from 'luxon'
  * C'est ce qui permet de remplacer Lucid sans toucher au métier — et surtout
  * d'empêcher que des règles de sécurité finissent dans un hook de modèle.
  */
-/*
-NB : la table la plus succeptible de changer vu que la double validation a été retiré
-*/
 export default class DeviceCommandModel extends BaseModel {
   static table = 'device_commands'
 

@@ -8,14 +8,21 @@ import type {
   EnforcementEvent,
   EnforcementEventLog,
 } from '#application/scheduling/ports'
-import type { ScheduleAssignment, UsageCause } from '#domain/scheduling/usage_policy'
-import { WeeklyWindow, type ScheduleMode } from '#domain/scheduling/value_objects'
-import type { EnforcementAction, EnforcementOutcome } from '#domain/scheduling/enforcement_policy'
+import type {
+  EnforcementAction,
+  EnforcementOutcome,
+} from '#domain/scheduling/code_legacy/schedule/schedule_enforcement'
+import type { ScheduleAssignment } from '#domain/scheduling/code_legacy/schedule/schedule_types'
+import type {
+  DesiredUsage,
+  UsageCause,
+} from '#domain/scheduling/code_legacy/schedule/schedule_usage'
+import { WeeklyWindow } from '#domain/scheduling/value_objects'
+import { ENGINE_COMMAND_TYPES, IN_FLIGHT_STATUSES } from '#domain/security/code_legacy/code_base'
 
 interface AssignmentRow {
   vehicle_id: string
   usage_schedule_id: string
-  mode: ScheduleMode
   source_type: 'vehicle' | 'group'
   group_id: string | null
   group_name: string | null
@@ -32,8 +39,8 @@ const toDate = (v: unknown): Date | null => (v ? new Date(v as string) : null)
  *
  * Tout ce que le moteur doit savoir, pour TOUS les véhicules concernés, en
  * un nombre de requêtes CONSTANT (six), quelle que soit la taille de la
- * flotte : calendriers applicables, plages, mémoire, dernière commande
- * confirmée, commande en vol, dernière intervention humaine.
+ * flotte : calendriers applicables, véhicules encore gérés, identité,
+ * plages, mémoire, dernière commande confirmée, commande en vol.
  *
  * Un véhicule hérite des calendriers de ses groupes : la jointure
  * `vehicle_schedule_groups → vehicle_group_members` est faite ici, au moment
@@ -62,11 +69,11 @@ export class LucidEnforcementReader implements EnforcementReader {
 
     const assignments = (await db.rawQuery(
       `WITH a AS (
-         SELECT vs.vehicle_id, vs.usage_schedule_id, vs.mode,
+         SELECT vs.vehicle_id, vs.usage_schedule_id,
                 'vehicle'::text AS source_type, NULL::uuid AS group_id, NULL::text AS group_name
            FROM vehicle_schedules vs
          UNION ALL
-         SELECT m.vehicle_id, vsg.usage_schedule_id, vsg.mode,
+         SELECT m.vehicle_id, vsg.usage_schedule_id,
                 'group'::text, g.id, g.name
            FROM vehicle_schedule_groups vsg
            JOIN vehicle_groups g        ON g.id = vsg.vehicle_group_id AND g.deleted_at IS NULL
@@ -104,7 +111,7 @@ export class LucidEnforcementReader implements EnforcementReader {
 
     const scheduleIds = [...new Set(assignments.rows.map((r) => r.usage_schedule_id))]
 
-    const [vehicules, fenetres, etats, confirmees, enVol, operateur] = await Promise.all([
+    const [vehicules, fenetres, etats, confirmees, enVol] = await Promise.all([
       db.from('vehicles').whereIn('id', ids).select('id', 'organization_id', 'registration'),
 
       scheduleIds.length
@@ -120,7 +127,7 @@ export class LucidEnforcementReader implements EnforcementReader {
       db
         .from('device_commands')
         .whereIn('vehicle_id', ids)
-        .whereIn('command_type', ['engine_cut', 'engine_restore'])
+        .whereIn('command_type', [...ENGINE_COMMAND_TYPES])
         .where('status', 'acknowledged')
         .distinctOn('vehicle_id')
         .orderBy([
@@ -133,19 +140,8 @@ export class LucidEnforcementReader implements EnforcementReader {
       db
         .from('device_commands')
         .whereIn('vehicle_id', ids)
-        .whereIn('status', ['approved', 'queued', 'sent'])
+        .whereIn('status', [...IN_FLIGHT_STATUSES])
         .distinct('vehicle_id'),
-
-      // ---- dernière intervention d'un humain ou d'une intégration
-      db
-        .from('device_commands')
-        .whereIn('vehicle_id', ids)
-        .whereIn('command_type', ['engine_cut', 'engine_restore'])
-        .whereNot('origin', 'schedule')
-        .whereNot('status', 'cancelled')
-        .groupBy('vehicle_id')
-        .select('vehicle_id')
-        .max('requested_at as last_at'),
     ])
 
     const plages = new Map<string, WeeklyWindow[]>()
@@ -164,7 +160,6 @@ export class LucidEnforcementReader implements EnforcementReader {
         scheduleId: r.usage_schedule_id,
         scheduleName: r.schedule_name,
         timezone: r.timezone,
-        mode: r.mode,
         windows: plages.get(r.usage_schedule_id) ?? [],
         source:
           r.source_type === 'group'
@@ -177,7 +172,6 @@ export class LucidEnforcementReader implements EnforcementReader {
     const etatPar = new Map(etats.map((e) => [e.vehicle_id as string, toState(e)]))
     const confirmeePar = new Map(confirmees.map((c) => [c.vehicle_id as string, c]))
     const enVolSet = new Set(enVol.map((c) => c.vehicle_id as string))
-    const operateurPar = new Map(operateur.map((o) => [o.vehicle_id as string, toDate(o.last_at)]))
 
     return vehicules.map((v) => {
       const c = confirmeePar.get(v.id)
@@ -195,7 +189,6 @@ export class LucidEnforcementReader implements EnforcementReader {
             }
           : null,
         commandInFlight: enVolSet.has(v.id),
-        lastOperatorCommandAt: operateurPar.get(v.id) ?? null,
       }
     })
   }
@@ -205,7 +198,7 @@ function toState(e: Record<string, unknown>): EnforcementState {
   return {
     vehicleId: e.vehicle_id as string,
     organizationId: e.organization_id as string,
-    desired: e.desired_state as 'free' | 'immobilized',
+    desired: e.desired_state as DesiredUsage,
     cause: e.cause as UsageCause,
     scheduleId: (e.usage_schedule_id as string) ?? null,
     pendingAction: (e.pending_action as EnforcementAction) ?? null,

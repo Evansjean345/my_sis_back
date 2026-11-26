@@ -19,7 +19,6 @@ export class PolicySchema extends BaseModel {
     'name',
     'organizationId',
     'priority',
-    'requiresHumanValidation',
     'severity',
     'triggerType',
     'updatedAt',
@@ -49,8 +48,6 @@ export class PolicySchema extends BaseModel {
   declare organizationId: string
   @column()
   declare priority: number
-  @column()
-  declare requiresHumanValidation: boolean
   @column()
   declare severity: string
   @column()

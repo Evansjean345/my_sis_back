@@ -9,10 +9,13 @@
  *
  *   import { COMMAND_TYPES, type CommandType } from '#domain/security/code_legacy/code_base'
  *
- * Alignées sur les contraintes CHECK de la migration 9
- * (`ck_device_commands_type`, `_status`, `_origin`). Un test unitaire
- * (`tests/unit/command_catalog.spec.ts`) casse le build si la migration et
- * ce fichier divergent.
+ * Alignées sur les contraintes CHECK `ck_device_commands_type`, `_status`
+ * (migration 16 : fin de la double validation) et `_origin` (migration 17 :
+ * origine `schedule`). `security/value_objects` les réexporte.
+ *
+ * La double validation n'existe plus : une commande naît `approved` (demande
+ * acceptée par le garde-fou de vitesse et le motif), puis elle est émise.
+ * Plus de `pending_validation` ni de `rejected`.
  *
  * Fichier du DOMAINE : aucun import de framework, aucune notion de flespi.
  */
@@ -33,7 +36,7 @@ export type CommandType = (typeof COMMAND_TYPES)[number]
 
 /**
  * Commandes moteur : elles ne passent QUE par le contexte `security`
- * (garde-fou de vitesse CM-07, double validation). Toute autre route doit
+ * (motif obligatoire, garde-fou de vitesse CM-07). Toute autre route doit
  * les refuser.
  */
 export const ENGINE_COMMAND_TYPES = [
@@ -50,9 +53,7 @@ export function isCommandType(value: unknown): value is CommandType {
 // Statuts et origines
 // ---------------------------------------------------------------------------
 export const COMMAND_STATUSES = [
-  'pending_validation',
   'approved',
-  'rejected',
   'queued',
   'sent',
   'acknowledged',
@@ -62,7 +63,12 @@ export const COMMAND_STATUSES = [
 ] as const
 export type CommandStatus = (typeof COMMAND_STATUSES)[number]
 
-export const COMMAND_ORIGINS = ['manual', 'policy', 'api'] as const
+/**
+ * `schedule` : émise par le moteur d'immobilisation automatique
+ * (`node ace sisbm:schedules:enforce`). C'est elle qui autorise le moteur à
+ * rétablir un véhicule : il ne libère jamais ce qu'un humain a coupé.
+ */
+export const COMMAND_ORIGINS = ['manual', 'policy', 'api', 'schedule'] as const
 export type CommandOrigin = (typeof COMMAND_ORIGINS)[number]
 
 /**
@@ -70,12 +76,10 @@ export type CommandOrigin = (typeof COMMAND_ORIGINS)[number]
  * dans des `if`. Toute transition non listée ici est refusée par l'agrégat.
  */
 export const ALLOWED_TRANSITIONS: Readonly<Record<CommandStatus, readonly CommandStatus[]>> = {
-  pending_validation: ['approved', 'rejected', 'cancelled', 'expired'],
   approved: ['queued', 'cancelled', 'expired'],
   queued: ['sent', 'failed', 'cancelled', 'expired'],
   sent: ['acknowledged', 'failed'],
   acknowledged: [],
-  rejected: [],
   failed: [],
   cancelled: [],
   expired: [],
@@ -86,7 +90,6 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<CommandStatus, readonly Comman
 // ---------------------------------------------------------------------------
 /** La commande occupe encore le tracker (contrainte CM-09, index `uq_device_commands_in_flight`). */
 export const IN_FLIGHT_STATUSES = [
-  'pending_validation',
   'approved',
   'queued',
   'sent',
@@ -99,11 +102,7 @@ export const AWAITING_PROVIDER_STATUSES = [
 ] as const satisfies readonly CommandStatus[]
 
 /** Peut expirer côté SISBM (pas encore remise au boîtier). */
-export const EXPIRABLE_STATUSES = [
-  'pending_validation',
-  'approved',
-  'queued',
-] as const satisfies readonly CommandStatus[]
+export const EXPIRABLE_STATUSES = ['approved', 'queued'] as const satisfies readonly CommandStatus[]
 
 /** Terminée sans exécution : compte comme un échec dans les indicateurs. */
 export const UNSUCCESSFUL_STATUSES = [

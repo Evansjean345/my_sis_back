@@ -115,7 +115,6 @@ export type ScannedRoutes = {
     'usage_schedule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.replace_windows': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.attach_vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.detach_vehicle': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
@@ -241,7 +240,6 @@ export type ScannedRoutes = {
     'admin.usage_schedule.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.destroy': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.replace_windows': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.attach_vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.detach_vehicle': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'memberId': ParamValue} }
@@ -357,7 +355,6 @@ export type ScannedRoutes = {
     'usage_schedule.index': { paramsTuple?: []; params?: {} }
     'usage_schedule.analytics': { paramsTuple?: []; params?: {} }
     'usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicle_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -418,7 +415,6 @@ export type ScannedRoutes = {
     'admin.usage_schedule.index_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.analytics_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.index_all': { paramsTuple?: []; params?: {} }
@@ -496,7 +492,6 @@ export type ScannedRoutes = {
     'usage_schedule.index': { paramsTuple?: []; params?: {} }
     'usage_schedule.analytics': { paramsTuple?: []; params?: {} }
     'usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'usage_schedule.vehicle_status': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -557,7 +552,6 @@ export type ScannedRoutes = {
     'admin.usage_schedule.index_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.analytics_all': { paramsTuple?: []; params?: {} }
     'admin.usage_schedule.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
-    'admin.usage_schedule.preview': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.vehicles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.usage_schedule.groups': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.driver.index_all': { paramsTuple?: []; params?: {} }

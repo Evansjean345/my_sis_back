@@ -7,14 +7,13 @@ import type { CommandOptions } from '@adonisjs/core/types/ace'
  * =========================================================================
  *
  * Applique les calendriers d'utilisation (`usage_schedules`) aux véhicules
- * qui les suivent, directement (`vehicle_schedules`) ou par leur groupe
- * (`vehicle_schedule_groups`) : coupe le moteur hors des plages autorisées
- * (ou pendant les plages interdites), le rétablit à la réouverture.
+ * qui les suivent, directement (`vehicle_schedules`) ou par leur flotte
+ * (`vehicle_schedule_groups`) : coupe AUTOMATIQUEMENT le moteur dès qu'un
+ * véhicule est hors de ses plages horaires, le rétablit à la réouverture.
+ * Aucune décision d'opérateur n'interrompt une coupure planifiée.
  *
  *   node ace sisbm:schedules:enforce --watch          # service : un passage par minute
  *   node ace sisbm:schedules:enforce                  # un seul passage (cron, systemd timer)
- *   node ace sisbm:schedules:enforce --dry-run        # ce qui serait fait, sans rien émettre
- *   node ace sisbm:schedules:enforce --dry-run --at=2026-11-03T22:30:00Z
  *   node ace sisbm:schedules:enforce --vehicle=<uuid> # un seul véhicule
  *
  * PROCESSUS SÉPARÉ de l'API, comme `sisbm:ingest`. Une SEULE instance agit à
@@ -37,12 +36,6 @@ export default class SchedulesEnforce extends BaseCommand {
   })
   declare watch: boolean
 
-  @flags.boolean({ description: 'Simulation : affiche les décisions, n’émet et n’écrit rien' })
-  declare dryRun: boolean
-
-  @flags.string({ description: 'Instant simulé (ISO 8601) — avec --dry-run uniquement' })
-  declare at: string
-
   @flags.string({ description: 'Limite le passage à un véhicule (uuid)' })
   declare vehicle: string
 
@@ -59,28 +52,15 @@ export default class SchedulesEnforce extends BaseCommand {
     const { default: redis } = await import('@adonisjs/redis/services/main')
 
     const planif = sisbmConfig.schedules
-    if (!this.dryRun && !planif.enabled) {
-      this.logger.error(
-        'SCHEDULE_ENFORCEMENT_ENABLED=false : moteur planifié désactivé (--dry-run reste possible)'
-      )
+    if (!planif.enabled) {
+      this.logger.error('SCHEDULE_ENFORCEMENT_ENABLED=false : moteur planifié désactivé')
       this.exitCode = 1
       return this.terminate()
     }
-    if (!this.dryRun && !sisbmConfig.immobilization.enabled) {
+    if (!sisbmConfig.immobilization.enabled) {
       this.logger.error(
         'IMMOBILIZATION_ENABLED=false : aucune coupure ne peut partir. Moteur planifié non démarré.'
       )
-      this.exitCode = 1
-      return this.terminate()
-    }
-    if (this.at && !this.dryRun) {
-      this.logger.error('--at n’a de sens qu’en simulation : ajouter --dry-run')
-      this.exitCode = 1
-      return this.terminate()
-    }
-    const at = this.at ? new Date(this.at) : undefined
-    if (at && Number.isNaN(at.getTime())) {
-      this.logger.error(`--at illisible : ${this.at}`)
       this.exitCode = 1
       return this.terminate()
     }
@@ -90,17 +70,13 @@ export default class SchedulesEnforce extends BaseCommand {
     const dureeVerrouMs = Math.max(planif.intervalSeconds * 3, 120) * 1000
 
     const passage = async () => {
-      if (!this.dryRun) {
-        const pris = await this.prendreVerrou(redis, cleVerrou, dureeVerrouMs)
-        if (!pris) {
-          this.logger.warning('une autre instance du moteur détient le verrou : passage ignoré')
-          return
-        }
+      const pris = await this.prendreVerrou(redis, cleVerrou, dureeVerrouMs)
+      if (!pris) {
+        this.logger.warning('une autre instance du moteur détient le verrou : passage ignoré')
+        return
       }
       const debut = Date.now()
       const r = await enforcer.execute({
-        dryRun: this.dryRun,
-        at,
         vehicleIds: this.vehicle ? [this.vehicle] : undefined,
         organizationId: this.organization || undefined,
       })
@@ -110,7 +86,7 @@ export default class SchedulesEnforce extends BaseCommand {
       }
       const rapport = r.value
       for (const e of rapport.entries) {
-        if (!this.dryRun && e.outcome === 'idle') continue
+        if (e.outcome === 'idle') continue
         const cal = e.schedule ? ` « ${e.schedule.name} » (${e.schedule.source})` : ''
         const issue = e.errorCode
           ? ` → refus ${e.errorCode}`
@@ -123,7 +99,7 @@ export default class SchedulesEnforce extends BaseCommand {
         )
       }
       this.logger.info(
-        `${this.dryRun ? '[simulation] ' : ''}${rapport.evaluated} véhicule(s) évalué(s), ` +
+        `${rapport.evaluated} véhicule(s) évalué(s), ` +
           `${rapport.dispatched} commande(s) émise(s), ${rapport.refused} refus — ${Date.now() - debut} ms`
       )
     }
@@ -146,9 +122,7 @@ export default class SchedulesEnforce extends BaseCommand {
       return arreter()
     }
 
-    this.logger.info(
-      `moteur planifié démarré : un passage toutes les ${planif.intervalSeconds} s${this.dryRun ? ' (simulation)' : ''}`
-    )
+    this.logger.info(`moteur planifié démarré : un passage toutes les ${planif.intervalSeconds} s`)
     while (!this.#arret) {
       await passage().catch((err) =>
         this.logger.error(`passage interrompu : ${(err as Error).message}`)

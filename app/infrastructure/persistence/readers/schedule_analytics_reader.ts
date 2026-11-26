@@ -8,6 +8,7 @@ import type {
   ScheduleAnalyticsQuery,
   ScheduleAnalyticsReader,
 } from '#application/scheduling/ports'
+import { IN_FLIGHT_STATUSES, UNSUCCESSFUL_STATUSES } from '#domain/security/code_legacy/code_base'
 
 /**
  * =========================================================================
@@ -19,8 +20,8 @@ import type {
  *   device_commands (origin = 'schedule')   ce que le moteur a ÉMIS et son issue
  *                                            (disponible depuis la migration 017)
  *   schedule_enforcement_events             ce qu'il a DÉCIDÉ : transitions, refus
- *                                            avant émission, dérogations, objectifs
- *                                            atteints (depuis la migration 020)
+ *                                            avant émission, objectifs atteints
+ *                                            (depuis la migration 020)
  *
  * Tout est agrégé en SQL (aucune ligne brute ne remonte), borné dans le temps
  * — index (organization_id, requested_at | occurred_at) — et ventilé par jour
@@ -36,7 +37,8 @@ const EMPTY_TALLY = (): CommandTally => ({
   inFlight: 0,
 })
 
-const IN_FLIGHT = new Set(['approved', 'queued', 'sent'])
+const IN_FLIGHT: ReadonlySet<string> = new Set(IN_FLIGHT_STATUSES)
+const ECHECS_SQL = UNSUCCESSFUL_STATUSES.map((s) => `'${s}'`).join(',')
 
 function count(tally: CommandTally, status: string, n: number) {
   tally.requested += n
@@ -165,14 +167,13 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
            SELECT c.vehicle_id,
                   count(*) FILTER (WHERE c.command_type = 'engine_cut')::int     AS cuts,
                   count(*) FILTER (WHERE c.command_type = 'engine_restore')::int AS restores,
-                  count(*) FILTER (WHERE c.status IN ('failed','expired'))::int  AS failures
+                  count(*) FILTER (WHERE c.status IN (${ECHECS_SQL}))::int  AS failures
              FROM device_commands c
             WHERE ${cWhere} AND c.vehicle_id IS NOT NULL
             GROUP BY 1
          ), evt AS (
            SELECT e.vehicle_id,
-                  count(*) FILTER (WHERE e.kind = 'refused')::int    AS refusals,
-                  count(*) FILTER (WHERE e.kind = 'overridden')::int AS overrides
+                  count(*) FILTER (WHERE e.kind = 'refused')::int AS refusals
              FROM schedule_enforcement_events e
             WHERE ${eWhere}
             GROUP BY 1
@@ -180,12 +181,12 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
          SELECT v.id, v.registration, v.organization_id,
                 COALESCE(cmd.cuts, 0) AS cuts, COALESCE(cmd.restores, 0) AS restores,
                 COALESCE(cmd.failures, 0) AS failures,
-                COALESCE(evt.refusals, 0) AS refusals, COALESCE(evt.overrides, 0) AS overrides
+                COALESCE(evt.refusals, 0) AS refusals
            FROM cmd
            FULL JOIN evt ON evt.vehicle_id = cmd.vehicle_id
            JOIN vehicles v ON v.id = COALESCE(cmd.vehicle_id, evt.vehicle_id)
           ORDER BY COALESCE(cmd.failures, 0) + COALESCE(evt.refusals, 0) DESC,
-                   COALESCE(evt.overrides, 0) DESC, COALESCE(cmd.cuts, 0) DESC, v.registration
+                   COALESCE(cmd.cuts, 0) DESC, v.registration
           LIMIT 10`,
         [...cArgs, ...eArgs]
       ),
@@ -195,7 +196,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
                 count(*) FILTER (WHERE e.kind = 'dispatched')::int AS dispatched,
                 count(*) FILTER (WHERE e.kind = 'dispatched' AND c.status = 'acknowledged')::int AS acknowledged,
                 count(*) FILTER (WHERE e.kind = 'refused')::int AS refusals,
-                count(*) FILTER (WHERE e.kind = 'overridden')::int AS overrides,
                 count(*) FILTER (WHERE e.kind = 'completed')::int AS completed,
                 percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM e.occurred_at - e.pending_since))
                   FILTER (WHERE e.kind = 'completed' AND e.pending_since IS NOT NULL) AS median_execution
@@ -223,7 +223,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
         restore: EMPTY_TALLY(),
         refusals: 0,
         refusedVehicles: 0,
-        overrides: 0,
         manualCutsKept: 0,
         transitionsToImmobilized: 0,
         transitionsToFree: 0,
@@ -260,7 +259,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
 
     const totals = {
       refusals: 0,
-      overrides: 0,
       manualCutsKept: 0,
       alreadyImmobilized: 0,
       transitionsToImmobilized: 0,
@@ -276,10 +274,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
             day.refusals += n
             day.hours.refused[num(r.hour)] += n
           }
-          break
-        case 'overridden':
-          totals.overrides += n
-          if (day) day.overrides += n
           break
         case 'manual_cut_kept':
           totals.manualCutsKept += n
@@ -348,7 +342,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
         restores: num(r.restores),
         failures: num(r.failures),
         refusals: num(r.refusals),
-        overrides: num(r.overrides),
       })),
       schedules: perSchedule.map((r) => ({
         id: String(r.id),
@@ -358,7 +351,6 @@ export class LucidScheduleAnalyticsReader implements ScheduleAnalyticsReader {
         dispatched: num(r.dispatched),
         acknowledged: num(r.acknowledged),
         refusals: num(r.refusals),
-        overrides: num(r.overrides),
         completed: num(r.completed),
         medianExecutionSeconds: numOrNull(r.median_execution),
       })),

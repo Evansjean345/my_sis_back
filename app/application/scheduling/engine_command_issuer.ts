@@ -4,7 +4,10 @@ import type { RequestImmobilization } from '#application/security/use_cases/requ
 import type { RequestEngineRestore } from '#application/security/use_cases/request_engine_restore'
 import type { DispatchEngineCommand } from '#application/security/use_cases/dispatch_engine_command'
 import type { CancelEngineCommand } from '#application/security/use_cases/cancel_engine_command'
-import type { EnforcementAction } from '#domain/scheduling/enforcement_policy'
+import {
+  DISPATCH_FAILED_CODE,
+  type EnforcementAction,
+} from '#domain/scheduling/code_legacy/schedule/schedule_enforcement'
 
 /**
  * =========================================================================
@@ -75,7 +78,7 @@ export class UseCaseEngineCommandIssuer implements EngineCommandIssuer {
         commandId,
         status: envoi.value.status,
         // `failed` : la passerelle a refusé ou n'a pas répondu (motif sur la commande).
-        errorCode: envoi.value.status === 'failed' ? 'E_DISPATCH_FAILED' : null,
+        errorCode: envoi.value.status === 'failed' ? DISPATCH_FAILED_CODE : null,
         errorMessage: null,
       }
     }

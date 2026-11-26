@@ -1,21 +1,42 @@
 import { test } from '@japa/runner'
 import {
   WeeklyWindow,
+  isDayOfWeek,
   localClock,
+  parseTimeOfDay,
   validateWeeklyWindows,
   isValidTimeZone,
-  type ScheduleMode,
 } from '#domain/scheduling/value_objects'
-import {
-  resolveUsage,
-  enforcementReason,
-  type ScheduleAssignment,
-} from '#domain/scheduling/usage_policy'
+import { resolveUsage, enforcementReason } from '#domain/scheduling/usage_policy'
 import {
   decideEnforcement,
-  type EnforcementInput,
-  type EnforcementMemory,
+  isManualCut,
+  requiredAction,
 } from '#domain/scheduling/enforcement_policy'
+import {
+  DAY_LABELS,
+  DAYS_OF_WEEK,
+  INTL_WEEKDAYS,
+} from '#domain/scheduling/code_legacy/schedule/schedule_days'
+import { TIME_OF_DAY_PATTERN } from '#domain/scheduling/code_legacy/schedule/schedule_time'
+import { USAGE_CAUSES } from '#domain/scheduling/code_legacy/schedule/schedule_usage'
+import {
+  ENFORCEMENT_EVENT_KINDS,
+  ENFORCEMENT_OUTCOMES,
+  ONE_TIME_OUTCOMES,
+} from '#domain/scheduling/code_legacy/schedule/schedule_enforcement'
+import type {
+  EnforcementInput,
+  EnforcementMemory,
+  ScheduleAssignment,
+} from '#domain/scheduling/code_legacy/schedule/schedule_types'
+import {
+  ALLOWED_TRANSITIONS,
+  COMMAND_ORIGINS,
+  COMMAND_STATUSES,
+  EXPIRABLE_STATUSES,
+  IN_FLIGHT_STATUSES,
+} from '#domain/security/code_legacy/code_base'
 import { EnforceUsageSchedules } from '#application/scheduling/use_cases/enforce_usage_schedules'
 import { UseCaseEngineCommandIssuer } from '#application/scheduling/engine_command_issuer'
 import type {
@@ -38,8 +59,11 @@ import type { CancelEngineCommand } from '#application/security/use_cases/cancel
 
 /**
  * =========================================================================
- *  IMMOBILISATION PLANIFIÉE — sans base, sans réseau, sans horloge réelle
+ *  PLAGES HORAIRES — sans base, sans réseau, sans horloge réelle
  * =========================================================================
+ *
+ * Le moteur est automatique : hors de ses plages, un véhicule est coupé ;
+ * aucune décision d'opérateur ne l'en empêche.
  *
  * Abidjan est en UTC+0 toute l'année : les instants ISO ci-dessous se lisent
  * directement en heure locale. 2026-11-03 est un MARDI (jour 2).
@@ -58,15 +82,13 @@ function plages(...fenetres: Array<[number, string, string]>) {
 }
 
 function calendrier(
-  mode: ScheduleMode,
   fenetres: Array<[number, string, string]>,
   over: Partial<ScheduleAssignment> = {}
 ): ScheduleAssignment {
   return {
     scheduleId: '77777777-7777-4777-8777-777777777777',
-    scheduleName: mode === 'allowed' ? 'Heures de service' : 'Couvre-feu',
+    scheduleName: 'Heures de service',
     timezone: 'Africa/Abidjan',
-    mode,
     windows: plages(...fenetres),
     source: { type: 'vehicle' },
     ...over,
@@ -79,6 +101,53 @@ const SEMAINE_6_20: Array<[number, string, string]> = [1, 2, 3, 4, 5].map((d) =>
   '06:00',
   '20:00',
 ])
+
+// =========================================================================
+//  Référentiel (code_legacy)
+// =========================================================================
+
+test.group('planification · référentiel code_legacy', () => {
+  test('sept jours, numérotés comme PostgreSQL (0 = dimanche)', ({ assert }) => {
+    assert.deepEqual([...DAYS_OF_WEEK], [0, 1, 2, 3, 4, 5, 6])
+    assert.lengthOf(DAY_LABELS, 7)
+    assert.equal(DAY_LABELS[0], 'dimanche')
+    assert.equal(INTL_WEEKDAYS.Sun, 0)
+    assert.equal(INTL_WEEKDAYS.Sat, 6)
+    assert.isTrue(isDayOfWeek(6))
+    assert.isFalse(isDayOfWeek(7))
+    assert.isFalse(isDayOfWeek(1.5))
+  })
+
+  test('même format d’heure pour le validateur et le domaine', ({ assert }) => {
+    for (const h of ['08:30', '08:30:15', '24:00', '00:00']) {
+      assert.isTrue(TIME_OF_DAY_PATTERN.test(h), h)
+      assert.isNotNull(parseTimeOfDay(h), h)
+    }
+    assert.isFalse(TIME_OF_DAY_PATTERN.test('8:30'))
+    assert.isNull(parseTimeOfDay('24:30'))
+  })
+
+  test('plus de mode interdit ni de dérogation opérateur', ({ assert }) => {
+    assert.notInclude([...USAGE_CAUSES] as string[], 'forbidden_window')
+    assert.notInclude([...USAGE_CAUSES] as string[], 'outside_forbidden_windows')
+    assert.notInclude([...ENFORCEMENT_OUTCOMES] as string[], 'overridden')
+    assert.notInclude([...ENFORCEMENT_EVENT_KINDS] as string[], 'overridden')
+    for (const o of ONE_TIME_OUTCOMES) {
+      assert.include([...ENFORCEMENT_OUTCOMES] as string[], o)
+      assert.include([...ENFORCEMENT_EVENT_KINDS] as string[], o)
+    }
+  })
+
+  test('commandes : plus aucun statut de double validation', ({ assert }) => {
+    const statuts = [...COMMAND_STATUSES] as string[]
+    assert.notInclude(statuts, 'pending_validation')
+    assert.notInclude(statuts, 'rejected')
+    assert.deepEqual(Object.keys(ALLOWED_TRANSITIONS).sort(), [...statuts].sort())
+    assert.deepEqual([...IN_FLIGHT_STATUSES], ['approved', 'queued', 'sent'])
+    assert.deepEqual([...EXPIRABLE_STATUSES], ['approved', 'queued'])
+    assert.include([...COMMAND_ORIGINS] as string[], 'schedule')
+  })
+})
 
 // =========================================================================
 //  Objets-valeurs
@@ -149,8 +218,8 @@ test.group('planification · verdict libre / immobilisé', () => {
     assert.equal(resolveUsage([], at('2026-11-03T10:00:00Z')).cause, 'no_schedule')
   })
 
-  test('allowed : libre pendant la plage, immobilisé en dehors', ({ assert }) => {
-    const c = [calendrier('allowed', SEMAINE_6_20)]
+  test('libre pendant la plage, immobilisé en dehors', ({ assert }) => {
+    const c = [calendrier(SEMAINE_6_20)]
     assert.equal(resolveUsage(c, at('2026-11-03T10:00:00Z')).state, 'free')
     const soir = resolveUsage(c, at('2026-11-03T20:00:00Z')) // borne de fin exclue
     assert.equal(soir.state, 'immobilized')
@@ -158,48 +227,27 @@ test.group('planification · verdict libre / immobilisé', () => {
     assert.equal(resolveUsage(c, at('2026-11-08T10:00:00Z')).state, 'immobilized') // dimanche
   })
 
-  test('forbidden : immobilisé pendant la plage seulement', ({ assert }) => {
-    const c = [calendrier('forbidden', [[2, '22:00', '24:00']])]
-    assert.equal(resolveUsage(c, at('2026-11-03T22:15:00Z')).cause, 'forbidden_window')
-    assert.equal(resolveUsage(c, at('2026-11-03T21:59:59Z')).cause, 'outside_forbidden_windows')
-  })
-
-  test("l'interdiction l'emporte sur l'autorisation, quel que soit l'ordre", ({ assert }) => {
-    const autorise = calendrier('allowed', [[2, '00:00', '24:00']])
-    const interdit = calendrier('forbidden', [[2, '12:00', '14:00']], { scheduleName: 'Pause' })
-    for (const c of [
-      [autorise, interdit],
-      [interdit, autorise],
-    ]) {
-      const v = resolveUsage(c, at('2026-11-03T12:30:00Z'))
-      assert.equal(v.state, 'immobilized')
-      assert.equal(v.decisive?.scheduleName, 'Pause')
-    }
-  })
-
-  test("plusieurs calendriers allowed : le véhicule roule pendant l'UNION des plages", ({
-    assert,
-  }) => {
-    const matin = calendrier('allowed', [[2, '06:00', '12:00']])
-    const groupe = calendrier('allowed', [[2, '14:00', '18:00']], {
+  test("plusieurs calendriers : le véhicule roule pendant l'UNION des plages", ({ assert }) => {
+    const matin = calendrier([[2, '06:00', '12:00']])
+    const groupe = calendrier([[2, '14:00', '18:00']], {
       source: { type: 'group', groupId: VEHICLE, groupName: 'Livraison' },
     })
     assert.equal(resolveUsage([matin, groupe], at('2026-11-03T15:00:00Z')).state, 'free')
     assert.equal(resolveUsage([matin, groupe], at('2026-11-03T13:00:00Z')).state, 'immobilized')
   })
 
-  test('allowed sans aucune plage : immobilisé en permanence', ({ assert }) => {
-    assert.equal(
-      resolveUsage([calendrier('allowed', [])], at('2026-11-03T10:00:00Z')).state,
-      'immobilized'
-    )
+  test('calendrier sans aucune plage : immobilisé en permanence', ({ assert }) => {
+    assert.equal(resolveUsage([calendrier([])], at('2026-11-03T10:00:00Z')).state, 'immobilized')
   })
 
   test('le motif inscrit sur la commande nomme le calendrier (CM-08)', ({ assert }) => {
-    const v = resolveUsage([calendrier('allowed', SEMAINE_6_20)], at('2026-11-03T21:00:00Z'))
+    const v = resolveUsage([calendrier(SEMAINE_6_20)], at('2026-11-03T21:00:00Z'))
     const motif = enforcementReason(v, 'cut')
     assert.include(motif, '« Heures de service »')
+    assert.include(motif, 'automatique')
     assert.isAtLeast(motif.trim().length, 5)
+    const libre = resolveUsage([], NOW)
+    assert.isAtLeast(enforcementReason(libre, 'restore').trim().length, 5)
   })
 })
 
@@ -215,11 +263,17 @@ function decider(over: Partial<EnforcementInput>) {
     previous: null,
     lastConfirmed: null,
     commandInFlight: false,
-    lastOperatorCommandAt: null,
     now: NOW,
     ...over,
   })
 }
+
+const calme = (desired: 'free' | 'immobilized'): EnforcementMemory => ({
+  desired,
+  pendingAction: null,
+  pendingSince: null,
+  nextAttemptAt: null,
+})
 
 const armeCoupure = (over: Partial<EnforcementMemory> = {}): EnforcementMemory => ({
   desired: 'immobilized',
@@ -230,7 +284,7 @@ const armeCoupure = (over: Partial<EnforcementMemory> = {}): EnforcementMemory =
 })
 
 test.group('planification · décision du moteur', () => {
-  test('entrée en période interdite → coupure émise', ({ assert }) => {
+  test('sortie de plage → coupure émise', ({ assert }) => {
     const d = decider({
       previous: { desired: 'free', pendingAction: null, pendingSince: null, nextAttemptAt: null },
     })
@@ -240,7 +294,7 @@ test.group('planification · décision du moteur', () => {
     assert.equal(d.memory.pendingSince?.getTime(), NOW.getTime())
   })
 
-  test('moteur déjà coupé à la transition → rien à émettre', ({ assert }) => {
+  test('moteur déjà coupé à la sortie de plage → rien à émettre', ({ assert }) => {
     const d = decider({
       lastConfirmed: { commandType: 'engine_cut', origin: 'manual', at: NOW },
     })
@@ -276,6 +330,12 @@ test.group('planification · décision du moteur', () => {
     assert.isNull(d.memory.pendingAction)
   })
 
+  test('relance : le début de l’action et les tentatives sont conservés', ({ assert }) => {
+    const d = decider({ previous: armeCoupure() })
+    assert.isTrue(d.resumed)
+    assert.equal(d.memory.pendingSince?.toISOString(), '2026-11-03T20:00:00.000Z')
+  })
+
   test('fin de plage : on rétablit ce que le calendrier a coupé', ({ assert }) => {
     const d = decider({
       desired: 'free',
@@ -305,32 +365,56 @@ test.group('planification · décision du moteur', () => {
     assert.equal(d.outcome, 'manual_cut_kept')
   })
 
-  test("dérogation : une commande opérateur après l'armement annule l'action", ({ assert }) => {
+  test('rétablissement MANUEL hors plage : le moteur recoupe automatiquement', ({ assert }) => {
+    // coupure confirmée plus tôt, puis un opérateur a rétabli le moteur
     const d = decider({
-      previous: armeCoupure(),
-      lastOperatorCommandAt: at('2026-11-03T20:30:00Z'),
+      previous: calme('immobilized'),
+      lastConfirmed: { commandType: 'engine_restore', origin: 'manual', at: NOW },
     })
-    assert.equal(d.outcome, 'overridden')
-    assert.isNull(d.action)
-    assert.isNull(d.memory.pendingAction)
+    assert.isFalse(d.transition)
+    assert.equal(d.action, 'cut')
+    assert.equal(d.outcome, 'dispatch')
   })
 
-  test("une commande opérateur ANTÉRIEURE à l'armement ne vaut pas dérogation", ({ assert }) => {
+  test("une commande opérateur pendant une coupure en attente n'annule rien", ({ assert }) => {
     const d = decider({
       previous: armeCoupure(),
-      lastOperatorCommandAt: at('2026-11-03T19:00:00Z'),
+      lastConfirmed: { commandType: 'engine_restore', origin: 'manual', at: NOW },
     })
     assert.equal(d.action, 'cut')
+    assert.isTrue(d.resumed)
   })
 
-  test('sans transition ni action armée : rien', ({ assert }) => {
+  test('coupure manuelle conservée : signalée une seule fois, pas à chaque passage', ({
+    assert,
+  }) => {
+    const manuelle = { commandType: 'engine_cut', origin: 'manual', at: NOW } as const
+    const entree = decider({
+      desired: 'free',
+      previous: calme('immobilized'),
+      lastConfirmed: manuelle,
+    })
+    assert.equal(entree.outcome, 'manual_cut_kept')
+    const ensuite = decider({ desired: 'free', previous: calme('free'), lastConfirmed: manuelle })
+    assert.equal(ensuite.outcome, 'idle')
+    assert.isNull(ensuite.action)
+  })
+
+  test('action nécessaire selon le moteur réel', ({ assert }) => {
+    const coupe = (origin: string) => ({ commandType: 'engine_cut' as const, origin, at: NOW })
+    assert.equal(requiredAction('immobilized', null), 'cut')
+    assert.isNull(requiredAction('immobilized', coupe('manual')))
+    assert.equal(requiredAction('free', coupe('schedule')), 'restore')
+    assert.isNull(requiredAction('free', coupe('manual')))
+    assert.isNull(requiredAction('free', null))
+    assert.isTrue(isManualCut(coupe('policy')))
+    assert.isFalse(isManualCut(coupe('schedule')))
+  })
+
+  test('hors plage, moteur coupé, rien en attente : rien', ({ assert }) => {
     const d = decider({
-      previous: {
-        desired: 'immobilized',
-        pendingAction: null,
-        pendingSince: null,
-        nextAttemptAt: null,
-      },
+      previous: calme('immobilized'),
+      lastConfirmed: { commandType: 'engine_cut', origin: 'schedule', at: NOW },
     })
     assert.equal(d.outcome, 'idle')
     assert.isFalse(d.transition)
@@ -346,11 +430,10 @@ function cible(over: Partial<EnforcementTarget> = {}): EnforcementTarget {
     vehicleId: VEHICLE,
     organizationId: ORG,
     registration: '1234 AB 01',
-    assignments: [calendrier('allowed', SEMAINE_6_20)],
+    assignments: [calendrier(SEMAINE_6_20)],
     state: null,
     lastConfirmed: null,
     commandInFlight: false,
-    lastOperatorCommandAt: null,
     ...over,
   }
 }
@@ -450,21 +533,45 @@ test.group('planification · cas d’usage EnforceUsageSchedules', () => {
     assert.equal(store.sauvegardes[0].nextAttemptAt?.getTime(), NOW.getTime() + 900_000)
   })
 
-  test('simulation : aucune émission, aucune écriture, instant au choix', async ({ assert }) => {
-    const issuer = new FakeIssuer()
-    const { use, store, audits } = moteur([cible()], issuer)
-    const r = await use.execute({ dryRun: true, at: at('2026-11-03T10:00:00Z') })
+  test('rétablissement manuel pendant les heures interdites : recoupé au passage suivant', async ({
+    assert,
+  }) => {
+    const etat: EnforcementState = {
+      vehicleId: VEHICLE,
+      organizationId: ORG,
+      desired: 'immobilized',
+      cause: 'outside_allowed_windows',
+      scheduleId: '77777777-7777-4777-8777-777777777777',
+      pendingAction: null,
+      pendingSince: null,
+      nextAttemptAt: null,
+      attempts: 0,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      lastCommandId: null,
+      lastOutcome: 'completed',
+      evaluatedAt: NOW,
+    }
+    const issuer = new FakeIssuer({ commandId: '88888888-8888-4888-8888-888888888888' })
+    const { use, store } = moteur(
+      [
+        cible({
+          state: etat,
+          lastConfirmed: { commandType: 'engine_restore', origin: 'manual', at: NOW },
+        }),
+      ],
+      issuer
+    )
+    const r = await use.execute()
     assert.isTrue(r.ok)
-    if (!r.ok) return
-    assert.equal(r.value.entries[0].desired, 'free') // mardi 10 h : dans la plage
-    assert.lengthOf(issuer.appels, 0)
-    assert.lengthOf(store.sauvegardes, 0)
-    assert.lengthOf(audits, 0)
+    assert.lengthOf(issuer.appels, 1)
+    assert.equal(issuer.appels[0].action, 'cut')
+    assert.equal(store.sauvegardes[0].attempts, 1)
   })
 
-  test("l'instant `at` est ignoré hors simulation", async ({ assert }) => {
+  test('toujours « maintenant » : le passage est daté par l’horloge', async ({ assert }) => {
     const { use } = moteur([cible()], new FakeIssuer())
-    const r = await use.execute({ at: at('2026-11-03T10:00:00Z') })
+    const r = await use.execute()
     if (r.ok) assert.equal(r.value.evaluatedAt.getTime(), NOW.getTime())
   })
 
@@ -485,7 +592,15 @@ test.group('planification · cas d’usage EnforceUsageSchedules', () => {
       lastOutcome: 'idle',
       evaluatedAt: NOW,
     }
-    const { use, store } = moteur([cible({ state: etat })], new FakeIssuer())
+    const { use, store } = moteur(
+      [
+        cible({
+          state: etat,
+          lastConfirmed: { commandType: 'engine_cut', origin: 'schedule', at: NOW },
+        }),
+      ],
+      new FakeIssuer()
+    )
     await use.execute()
     assert.lengthOf(store.sauvegardes, 0)
   })
@@ -614,25 +729,35 @@ test.group('planification · journal d’exécution', () => {
     assert.equal(journal.events[0].scheduleId, SCHEDULE)
   })
 
-  test('dérogation opérateur journalisée', async ({ assert }) => {
+  test('coupure manuelle conservée au retour en plage : journalisée une fois', async ({
+    assert,
+  }) => {
     const { use, journal } = moteur(
-      [cible({ state: armee(), lastOperatorCommandAt: new Date(NOW.getTime() - 60_000) })],
+      [
+        cible({
+          assignments: [calendrier([[2, '00:00', '24:00']])],
+          state: armee({ pendingAction: null, pendingSince: null, lastOutcome: 'idle' }),
+          lastConfirmed: { commandType: 'engine_cut', origin: 'manual', at: NOW },
+        }),
+      ],
       new FakeIssuer()
     )
     await use.execute()
-    assert.deepEqual(kinds(journal.events), ['overridden'])
+    assert.deepEqual(kinds(journal.events), ['transition', 'manual_cut_kept'])
   })
 
   test('passage sans changement : rien à journaliser', async ({ assert }) => {
-    const calme = armee({ pendingAction: null, pendingSince: null, lastOutcome: 'idle' })
-    const { use, journal } = moteur([cible({ state: calme })], new FakeIssuer())
+    const repos = armee({ pendingAction: null, pendingSince: null, lastOutcome: 'idle' })
+    const { use, journal } = moteur(
+      [
+        cible({
+          state: repos,
+          lastConfirmed: { commandType: 'engine_cut', origin: 'schedule', at: NOW },
+        }),
+      ],
+      new FakeIssuer()
+    )
     await use.execute()
-    assert.lengthOf(journal.events, 0)
-  })
-
-  test('simulation : rien n’est journalisé', async ({ assert }) => {
-    const { use, journal } = moteur([cible()], new FakeIssuer())
-    await use.execute({ dryRun: true })
     assert.lengthOf(journal.events, 0)
   })
 

@@ -1,6 +1,15 @@
 import vine from '@vinejs/vine'
-import type { FieldContext } from '@vinejs/vine/types'
-import { SCHEDULE_MODES } from '#domain/scheduling/value_objects'
+import {
+  FIRST_DAY_OF_WEEK,
+  LAST_DAY_OF_WEEK,
+} from '#domain/scheduling/code_legacy/schedule/schedule_days'
+import {
+  MAX_SCHEDULE_WINDOWS,
+  SCHEDULE_DESCRIPTION_MAX_LENGTH,
+  SCHEDULE_NAME_MAX_LENGTH,
+  SCHEDULE_NAME_MIN_LENGTH,
+} from '#domain/scheduling/code_legacy/schedule/schedule_limits'
+import { TIME_OF_DAY_PATTERN } from '#domain/scheduling/code_legacy/schedule/schedule_time'
 
 /**
  * Schémas des calendriers d'utilisation.
@@ -11,33 +20,24 @@ import { SCHEDULE_MODES } from '#domain/scheduling/value_objects'
  * d'erreur métier stables, pas des messages de champ.
  */
 
-/** `HH:MM` ou `HH:MM:SS`, `24:00` admis comme fin de journée. */
-const TIME = /^([01]\d|2[0-4]):[0-5]\d(:[0-5]\d)?$/
-
-/** Une semaine complète tient largement en 100 plages. */
-const MAX_WINDOWS = 100
-
-const isoInstant = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
-  if (typeof value !== 'string') return
-  if (Number.isNaN(Date.parse(value))) {
-    field.report('Le champ {{ field }} doit être une date ISO 8601', 'isoInstant', field)
-  }
-})
-
+/** Plage horaire : jour (0 = dimanche … 6 = samedi) et heures `HH:MM`, `24:00` admis en fin. */
 const windowSchema = vine.object({
-  /** 0 = dimanche … 6 = samedi (convention PostgreSQL `EXTRACT(DOW)`). */
-  dayOfWeek: vine.number().withoutDecimals().min(0).max(6),
-  startTime: vine.string().trim().regex(TIME),
-  endTime: vine.string().trim().regex(TIME),
+  dayOfWeek: vine.number().withoutDecimals().min(FIRST_DAY_OF_WEEK).max(LAST_DAY_OF_WEEK),
+  startTime: vine.string().trim().regex(TIME_OF_DAY_PATTERN),
+  endTime: vine.string().trim().regex(TIME_OF_DAY_PATTERN),
 })
 
 const scheduleFields = {
-  name: vine.string().trim().minLength(2).maxLength(80),
-  description: vine.string().trim().maxLength(300).optional(),
+  name: vine
+    .string()
+    .trim()
+    .minLength(SCHEDULE_NAME_MIN_LENGTH)
+    .maxLength(SCHEDULE_NAME_MAX_LENGTH),
+  description: vine.string().trim().maxLength(SCHEDULE_DESCRIPTION_MAX_LENGTH).optional(),
   /** Fuseau IANA. Défaut : `Africa/Abidjan`. */
   timezone: vine.string().trim().minLength(3).maxLength(64).optional(),
   isActive: vine.boolean().optional(),
-  windows: vine.array(windowSchema).maxLength(MAX_WINDOWS).optional(),
+  windows: vine.array(windowSchema).maxLength(MAX_SCHEDULE_WINDOWS).optional(),
 }
 
 export const createUsageScheduleValidator = vine.compile(vine.object(scheduleFields))
@@ -47,14 +47,19 @@ export const updateUsageScheduleValidator = vine.compile(
     ...scheduleFields,
     name: scheduleFields.name.clone().optional(),
     /** `null` efface la description. */
-    description: vine.string().trim().maxLength(300).nullable().optional(),
+    description: vine
+      .string()
+      .trim()
+      .maxLength(SCHEDULE_DESCRIPTION_MAX_LENGTH)
+      .nullable()
+      .optional(),
   })
 )
 
 /** PUT /usage-schedules/:id/windows — la semaine entière, remplacée d'un bloc. */
 export const replaceWindowsValidator = vine.compile(
   vine.object({
-    windows: vine.array(windowSchema).maxLength(MAX_WINDOWS),
+    windows: vine.array(windowSchema).maxLength(MAX_SCHEDULE_WINDOWS),
   })
 )
 
@@ -77,25 +82,26 @@ export const adminListUsageSchedulesValidator = vine.compile(
   })
 )
 
-/** Rattachement en lot, IDEMPOTENT ; le mode par défaut est `allowed`. */
+/**
+ * Ancien champ `mode` : seules les plages autorisées existent. `allowed` est
+ * encore toléré (un tableau de bord pas encore aligné l'envoie) ; `forbidden`
+ * est refusé, pour qu'une interdiction ne devienne jamais en silence une
+ * autorisation. À retirer quand plus aucun client n'envoie `mode`.
+ */
+const legacyMode = () => vine.enum(['allowed'] as const).optional()
+
+/** Rattachement en lot, IDEMPOTENT. */
 export const attachScheduleVehiclesValidator = vine.compile(
   vine.object({
     vehicleIds: vine.array(vine.string().uuid()).minLength(1),
-    mode: vine.enum(SCHEDULE_MODES).optional(),
+    mode: legacyMode(),
   })
 )
 
 export const attachScheduleGroupsValidator = vine.compile(
   vine.object({
     vehicleGroupIds: vine.array(vine.string().uuid()).minLength(1),
-    mode: vine.enum(SCHEDULE_MODES).optional(),
-  })
-)
-
-/** Simulation : « que déciderait le moteur à tel instant ? ». */
-export const previewScheduleValidator = vine.compile(
-  vine.object({
-    at: vine.string().trim().maxLength(40).use(isoInstant()).optional(),
+    mode: legacyMode(),
   })
 )
 

@@ -692,23 +692,19 @@ Content-Type: application/json
   ]
 }
 
-### rattacher des véhicules (mode allowed par défaut)
+### rattacher des véhicules : coupés automatiquement hors des plages
 POST {{api}}/usage-schedules/{{scheduleId}}/vehicles
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "vehicleIds": ["{{vehicleId}}"], "mode": "allowed" }
+{ "vehicleIds": ["{{vehicleId}}"] }
 
 ### rattacher un GROUPE de véhicules : tous ses membres, présents et futurs
 POST {{api}}/usage-schedules/{{scheduleId}}/vehicle-groups
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "vehicleGroupIds": ["{{vehicleGroupId}}"], "mode": "allowed" }
-
-### SIMULATION : que ferait le moteur ce soir à 22 h 30 ?
-GET {{api}}/usage-schedules/{{scheduleId}}/preview?at=2026-11-03T22:30:00Z
-Authorization: Bearer {{token}}
+{ "vehicleGroupIds": ["{{vehicleGroupId}}"] }
 
 ### état planifié d'un véhicule (calendriers, origine, verdict, mémoire du moteur)
 GET {{api}}/vehicles/{{vehicleId}}/schedule-status

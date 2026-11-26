@@ -521,7 +521,6 @@ export async function saveRule(input: RuleInput, actorId: string | null, id?: st
           ...values,
           organization_id: input.organizationId,
           created_by: actorId,
-          requires_human_validation: false,
         })
         .returning('id')
       ruleId = row.id as string
