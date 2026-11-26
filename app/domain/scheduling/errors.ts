@@ -8,6 +8,9 @@ les tableaux de bord et sert de clé de traduction.
 
 /*
 Fenetere horaire mal formée : jour hors 0-6, heure illisible, fin avant début.*/
+/*
+erreur une plage horaire invalide
+*/
 export class InvalidScheduleWindowError extends DomainError {
   readonly code = 'E_INVALID_SCHEDULE_WINDOW'
   readonly httpStatus = 422
@@ -21,6 +24,9 @@ export class InvalidScheduleWindowError extends DomainError {
 Deux fenetres du même jour se chevauchent.
 Sans conséquence sur le calcul (l'union est la même), mais c'est presque
 toujours une erreur de saisie : on la signale plutôt que de la stocker.
+*/
+/*
+Erreur pour chevauchement des plages horaires
 */
 export class OverlappingScheduleWindowsError extends DomainError {
   readonly code = 'E_SCHEDULE_WINDOWS_OVERLAP'
@@ -36,6 +42,9 @@ export class OverlappingScheduleWindowsError extends DomainError {
 }
 
 /** Fuseau horaire inconnu du runtime (IANA attendu : `Africa/Abidjan`). */
+/*
+Erreur pour une plage horaire invalide
+*/
 export class InvalidTimezoneError extends DomainError {
   readonly code = 'E_INVALID_TIMEZONE'
   readonly httpStatus = 422
@@ -48,6 +57,9 @@ export class InvalidTimezoneError extends DomainError {
 }
 
 /** Période d'analyse invalide : début après la fin, ou plus de `maxDays` jours. */
+/*
+erreur pour une plage d'analyse invalide
+*/
 export class InvalidAnalyticsRangeError extends DomainError {
   readonly code = 'E_INVALID_ANALYTICS_RANGE'
   readonly httpStatus = 422

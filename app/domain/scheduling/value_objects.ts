@@ -26,6 +26,10 @@ import {
  *
  * Aligné sur les CHECK de `vehicle_schedules` et `vehicle_schedule_groups`.
  */
+/*
+schedule mode sera simplement allowed 
+on supprime le mode non autorisé
+*/
 export const SCHEDULE_MODES = ['allowed', 'forbidden'] as const
 export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
 
@@ -39,6 +43,9 @@ export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
  * déjà posée par le CHECK `ck_schedule_windows_dow` (0-6). Luxon numérote
  * 1 = lundi … 7 = dimanche : ne jamais mélanger les deux.
  */
+/*
+schedule day à mettre dans un fichier
+*/
 export const DAY_LABELS = [
   'dimanche',
   'lundi',
