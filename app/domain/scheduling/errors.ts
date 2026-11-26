@@ -21,6 +21,9 @@ export class InvalidScheduleWindowError extends DomainError {
  * Sans conséquence sur le calcul (l'union est la même), mais c'est presque
  * toujours une erreur de saisie : on la signale plutôt que de la stocker.
  */
+/*
+chevauchement d'une plage horaire
+*/
 export class OverlappingScheduleWindowsError extends DomainError {
   readonly code = 'E_SCHEDULE_WINDOWS_OVERLAP'
   readonly httpStatus = 422
@@ -35,6 +38,9 @@ export class OverlappingScheduleWindowsError extends DomainError {
 }
 
 /** Fuseau horaire inconnu du runtime (IANA attendu : `Africa/Abidjan`). */
+/*
+Fusiau horaire invalide
+*/
 export class InvalidTimezoneError extends DomainError {
   readonly code = 'E_INVALID_TIMEZONE'
   readonly httpStatus = 422
@@ -47,6 +53,9 @@ export class InvalidTimezoneError extends DomainError {
 }
 
 /** Période d'analyse invalide : début après la fin, ou plus de `maxDays` jours. */
+/*
+periode d'analyse invalide
+*/
 export class InvalidAnalyticsRangeError extends DomainError {
   readonly code = 'E_INVALID_ANALYTICS_RANGE'
   readonly httpStatus = 422

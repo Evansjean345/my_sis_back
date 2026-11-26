@@ -57,8 +57,14 @@ export interface AssignmentChange {
   rejected: string[]
 }
 
+/*
+Pattern de creation d'une plage horaire
+*/
 export interface UsageScheduleRepository {
   /** Crée le calendrier ET ses plages dans une seule transaction. */
+  /*
+  fonction de creation d'une plage horaire
+  */
   create(input: {
     organizationId: string
     name: string

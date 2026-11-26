@@ -128,6 +128,14 @@ export class TelemetryReading {
   get speed(): Speed {
     return this.input.speed
   }
+  /** Cap en degrés (0-360), s'il est connu. */
+  get headingDeg(): number | null {
+    return this.input.heading?.degrees ?? null
+  }
+  /** Contact tel que rapporté par le boîtier (`null` : inconnu). */
+  get ignition(): boolean | null {
+    return this.input.ignition ?? null
+  }
   get vehicleId(): VehicleId | null {
     return this.input.vehicleId
   }

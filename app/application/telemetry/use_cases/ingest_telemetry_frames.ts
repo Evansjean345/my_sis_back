@@ -20,6 +20,11 @@ import type {
 import { UnknownDeviceError } from '#domain/telemetry/errors'
 //événements liés à la télémetrie
 import { IgnitionTurnedOff, IgnitionTurnedOn, PositionRecorded } from '#domain/telemetry/events'
+import type {
+  TripLiveUpdate,
+  TripPoint,
+} from '#domain/telemetry/code_legacy/trip/trip_reading_types'
+import { tripLiveSnapshot, tripPointOf } from '#domain/telemetry/trip_reading_policy'
 //ports applicatifs pour le cas d'uasge du contexte de la télémetrie
 import type { Clock, IdGenerator, TransactionScope, UnitOfWork, UseCase } from '#application/ports'
 //ports applicatifs liés au contexte de la télémetrie
@@ -225,7 +230,11 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     }
     if (lectures.length === 0) return Ok(undefined)
 
-    return this.unitOfWork.run(async (tx) => {
+    // Trajet en cours, diffusé APRÈS le COMMIT : un trajet annoncé puis annulé
+    // par un ROLLBACK afficherait un tracé qui n'existe pas.
+    const enDirect: TripLiveUpdate[] = []
+
+    const resultat = await this.unitOfWork.run(async (tx) => {
       // ---- Journal des trames brutes
       for (const f of frames) {
         await this.ingestMessages.record(
@@ -268,7 +277,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
 
       // ---- Trajets
       if (device.vehicleId) {
-        await this.majTrajet(device, lectures, tx, out)
+        await this.majTrajet(device, lectures, tx, out, enDirect)
       }
 
       // ---- Événements de domaine → outbox, publiés après COMMIT
@@ -305,6 +314,21 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
 
       return Ok(undefined)
     })
+
+    if (resultat.ok) await this.publierTrajets(device.organizationId, enDirect)
+    return resultat
+  }
+
+  /**
+   * Diffusion des trajets en direct (Socket.IO). Au mieux, comme les
+   * positions : un tableau de bord qui rate une mise à jour relit le trajet,
+   * une ingestion qui échoue perdrait des positions.
+   */
+  private async publierTrajets(organizationId: string, updates: TripLiveUpdate[]): Promise<void> {
+    if (!this.broadcaster.publishTrip) return
+    for (const update of updates) {
+      await this.broadcaster.publishTrip(organizationId, update).catch(() => undefined)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -419,11 +443,24 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     lectures: TelemetryReading[],
     //tx: import('#application/ports').TransactionScope,
     tx: TransactionScope,
-    out: IngestTelemetryOutput
+    out: IngestTelemetryOutput,
+    enDirect: TripLiveUpdate[]
   ): Promise<void> {
     const vehicleId = VehicleId.from(device.vehicleId!)
     const now = this.clock.now()
     let trip = await this.trips.findOpenByVehicle(vehicleId, tx)
+
+    // Points ajoutés au trajet courant depuis la dernière mise à jour diffusée.
+    let nouveaux: TripPoint[] = []
+    const diffuserPoints = () => {
+      if (trip && nouveaux.length > 0) {
+        enDirect.push({ type: 'progress', trip: tripLiveSnapshot(trip), points: nouveaux })
+      }
+      nouveaux = []
+    }
+    const diffuserCloture = (t: Trip) => {
+      enDirect.push({ type: 'closed', trip: tripLiveSnapshot(t), points: [] })
+    }
 
     for (const l of lectures) {
       if (!l.countsForTrip) continue
@@ -435,6 +472,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
          * une durée incluant l'immobilisation — puis on en ouvre un nouveau.
          */
         if (trip && trip.isStale(now, this.settings.tripMaxDurationHours)) {
+          diffuserPoints()
           const expire = trip.close({
             at: trip.lastPointAt,
             reason: 'timeout',
@@ -443,6 +481,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
           if (expire.ok) {
             await this.trips.save(trip, tx)
             tx.collect(trip.pullDomainEvents())
+            diffuserCloture(trip)
             out.tripsClosed += 1
             out.tripsExpired += 1
             trip = null
@@ -460,6 +499,8 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
             speed: l.speed,
           })
           out.tripsStarted += 1
+          enDirect.push({ type: 'started', trip: tripLiveSnapshot(trip), points: [] })
+          nouveaux = [tripPointOf(l)]
           tx.collect([
             new IgnitionTurnedOn(device.deviceId, {
               vehicleId: device.vehicleId,
@@ -476,7 +517,8 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
             speed: l.speed,
             idleThresholdKph: this.settings.idleSpeedThresholdKph,
           })
-          if (!ajout.ok) out.tripOutOfOrder += 1
+          if (ajout.ok) nouveaux.push(tripPointOf(l))
+          else out.tripOutOfOrder += 1
         }
         continue
       }
@@ -489,7 +531,9 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
           //seuil de ralenti en kph
           idleThresholdKph: this.settings.idleSpeedThresholdKph,
         })
-        if (!ajout.ok) out.tripOutOfOrder += 1
+        if (ajout.ok) nouveaux.push(tripPointOf(l))
+        else out.tripOutOfOrder += 1
+        diffuserPoints()
 
         /**
          * Contact OFF plus ANCIEN que le dernier point : le trajet reste
@@ -510,6 +554,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
 
         await this.trips.save(trip, tx)
         tx.collect(trip.pullDomainEvents())
+        diffuserCloture(trip)
         tx.collect([
           new IgnitionTurnedOff(device.deviceId, {
             vehicleId: device.vehicleId,
@@ -524,6 +569,7 @@ export class IngestTelemetryFrames implements UseCase<IngestTelemetryInput, Inge
     if (trip) {
       await this.trips.save(trip, tx)
       tx.collect(trip.pullDomainEvents())
+      diffuserPoints()
     }
   }
 

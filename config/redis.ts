@@ -18,6 +18,18 @@ export default defineConfig({
         return times > 10 ? null : times * 200
       },
     },
+    /**
+     * Socket.IO (adaptateur et émetteur Redis) : SANS `keyPrefix`, pour que
+     * l'API et l'ingestion publient et écoutent exactement les mêmes canaux.
+     */
+    realtime: {
+      host: env.get('REDIS_HOST'),
+      port: env.get('REDIS_PORT'),
+      password: env.get('REDIS_PASSWORD', ''),
+      retryStrategy(times) {
+        return times > 10 ? null : times * 200
+      },
+    },
     queue: {
       host: env.get('REDIS_HOST'),
       port: env.get('REDIS_PORT'),

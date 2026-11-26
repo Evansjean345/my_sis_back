@@ -27,6 +27,7 @@ import {
  * (une émission flespi par véhicule). L'immobilisation de grandes flottes
  * passe par un calendrier, appliqué en tâche de fond.
  */
+//immobilization sur un grand groupe de véhciule
 const MAX_GROUP_COMMANDS = 100
 
 /**

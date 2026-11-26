@@ -5,13 +5,22 @@
  * et de `Date#getDay()`, posée par le CHECK `ck_schedule_windows_dow` (0-6).
  * Luxon numérote 1 = lundi … 7 = dimanche : ne jamais mélanger les deux.
  */
+/*
+jours de la semaine comme constante en nombre
+*/
 export const DAYS_OF_WEEK = [0, 1, 2, 3, 4, 5, 6] as const
 export type DayOfWeek = (typeof DAYS_OF_WEEK)[number]
 
+/*
+first day de la semaine et last day de la selaine
+*/
 export const FIRST_DAY_OF_WEEK: DayOfWeek = 0
 export const LAST_DAY_OF_WEEK: DayOfWeek = 6
 
 /** Libellé de chaque jour, indexé par `DayOfWeek`. */
+/*
+tableau pour représenter les jours de la semaine
+*/
 export const DAY_LABELS = [
   'dimanche',
   'lundi',

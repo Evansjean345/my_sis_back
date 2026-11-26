@@ -7,6 +7,9 @@
  *
  * Aligné sur les CHECK de `vehicle_schedule_states` et `schedule_enforcement_events`.
  */
+/*
+schedule usage soit free ou immobilized
+*/
 export const DESIRED_USAGES = ['free', 'immobilized'] as const
 export type DesiredUsage = (typeof DESIRED_USAGES)[number]
 
@@ -15,6 +18,11 @@ export type DesiredUsage = (typeof DESIRED_USAGES)[number]
  *  inside_allowed_window    une plage autorisée est en cours     → libre
  *  outside_allowed_windows  aucune plage autorisée en cours      → immobilisé
  */
+/*
+aucun calendrier
+a dejà une plage en cours
+n'a pas de plage en cours
+*/
 export const USAGE_CAUSES = [
   'no_schedule',
   'inside_allowed_window',

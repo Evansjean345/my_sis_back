@@ -34,3 +34,16 @@ export class DeviceNotAssignedError extends DomainError {
     )
   }
 }
+
+/** Période de recherche de trajets invalide : début après la fin, ou trop longue. */
+export class InvalidTripRangeError extends DomainError {
+  readonly code = 'E_INVALID_TRIP_RANGE'
+  readonly httpStatus = 422
+  constructor(from: string, to: string, maxDays: number) {
+    super(`Période invalide (${from} → ${to}) : début avant fin, ${maxDays} jours au plus`, {
+      from,
+      to,
+      maxDays,
+    })
+  }
+}

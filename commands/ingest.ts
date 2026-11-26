@@ -63,6 +63,10 @@ export default class Ingest extends BaseCommand {
     const { CachedDeviceResolver } =
       await import('#infrastructure/persistence/readers/device_resolver')
     const { TransmitBroadcaster } = await import('#infrastructure/realtime/transmit_broadcaster')
+    const { SocketIoBroadcaster } =
+      await import('#infrastructure/realtime/socket/socket_io_broadcaster')
+    const { CompositeBroadcaster } = await import('#infrastructure/realtime/composite_broadcaster')
+    const { default: redis } = await import('@adonisjs/redis/services/main')
     const { SystemClock } = await import('#infrastructure/services/clock')
     const { UuidGenerator } = await import('#infrastructure/services/id_generator')
     const { FairScheduler } = await import('#infrastructure/telemetry/fair_scheduler')
@@ -106,7 +110,11 @@ export default class Ingest extends BaseCommand {
       new LucidVehicleLastPositionRepository(),
       new LucidTripRepository(),
       new CachedDeviceResolver(),
-      new TransmitBroadcaster(),
+      // SSE (positions, état des boîtiers) + Socket.IO (trajets en direct, via Redis).
+      new CompositeBroadcaster([
+        new TransmitBroadcaster(),
+        new SocketIoBroadcaster(redis.connection('realtime').ioConnection),
+      ]),
       new SystemClock(),
       new UuidGenerator(),
       {

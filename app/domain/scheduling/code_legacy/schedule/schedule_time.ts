@@ -1,3 +1,7 @@
+/*
+Fichier de temps pour une plage horaire
+*/
+
 /**
  * PLAGES HORAIRES — heures de la journée.
  *
@@ -6,6 +10,10 @@
  * `start_time < end_time`. Une plage qui passe minuit (22 h → 6 h) se saisit
  * en deux plages : 22:00-24:00 puis 00:00-06:00 le lendemain.
  */
+/*
+plage horaire pas seconds 
+plage horaire par jours
+*/
 export const SECONDS_PER_HOUR = 3600
 export const SECONDS_PER_DAY = 86_400
 

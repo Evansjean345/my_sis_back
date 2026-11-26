@@ -1,4 +1,12 @@
 import type { TelemetryFrame } from '#application/telemetry/dto/telemetry_frame'
+import type {
+  TripListPage,
+  TripListQuery,
+  TripLiveUpdate,
+  TripPoint,
+  TripReadScope,
+  TripSummary,
+} from '#domain/telemetry/code_legacy/trip/trip_reading_types'
 
 /**
  * Ports applicatifs du contexte Télémétrie.
@@ -37,8 +45,7 @@ export interface TelemetryTransport {
   readonly isConnected: boolean
 }
 
-/** Diffusion vers les tableaux de bord (SSE). */
-//server sent events //publications des events
+/** Diffusion vers les tableaux de bord (SSE et Socket.IO). */
 export interface RealtimeBroadcaster {
   publishPosition(organizationId: string, payload: Record<string, unknown>): Promise<void>
   /**
@@ -48,6 +55,11 @@ export interface RealtimeBroadcaster {
    * qui ne l'implémente pas ne casse rien.
    */
   publishDeviceStatus?(organizationId: string, payload: DeviceStatusPayload): Promise<void>
+  /**
+   * Trajet en cours : ouverture, nouveaux points, clôture. Publié APRÈS le
+   * COMMIT de l'ingestion (Socket.IO). Optionnel, comme l'état du boîtier.
+   */
+  publishTrip?(organizationId: string, update: TripLiveUpdate): Promise<void>
 }
 
 export interface DeviceStatusPayload {
@@ -65,6 +77,31 @@ export interface DeviceStatusPayload {
   ignition: boolean | null
   gsmSignal: number | null
   batteryPct: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Lecture des trajets (connexion persistante Socket.IO)
+// ---------------------------------------------------------------------------
+
+/** Fenêtre de points d'un trajet, lue par page (curseur exclusif sur `recorded_at`). */
+export interface TripPointsQuery {
+  readonly vehicleId: string
+  /** Boîtier du trajet : un véhicule à deux trackers ne mélange pas leurs points. */
+  readonly deviceId: string | null
+  readonly from: Date
+  /** `null` : trajet encore ouvert, pas de borne haute. */
+  readonly to: Date | null
+  readonly after: Date | null
+  readonly limit: number
+}
+
+export interface TripReader {
+  list(query: TripListQuery): Promise<TripListPage>
+  find(tripId: string): Promise<TripSummary | null>
+  points(query: TripPointsQuery): Promise<TripPoint[]>
+  /** Véhicules vivants de ce périmètre, parmi `vehicleIds`. */
+  vehiclesInScope(scope: TripReadScope, vehicleIds: readonly string[]): Promise<string[]>
+  organizationExists(organizationId: string): Promise<boolean>
 }
 
 export type { TelemetryFrame }

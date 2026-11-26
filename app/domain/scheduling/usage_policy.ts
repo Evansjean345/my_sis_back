@@ -27,11 +27,17 @@ import { localClock } from '#domain/scheduling/value_objects'
  */
 
 /** Le véhicule est-il dans une plage de ce calendrier, à cet instant (heure du calendrier) ? */
+/*
+Fonct de traitement pour vérifier si le véhicule est dans une plage horaire du calendrier
+*/
 export function isWithinSchedule(assignment: ScheduleAssignment, now: Date): boolean {
   const clock = localClock(now, assignment.timezone)
   return assignment.windows.some((w) => w.contains(clock))
 }
 
+/*
+fonction de resolution d'un usage d'une plage horaire
+*/
 export function resolveUsage(assignments: readonly ScheduleAssignment[], now: Date): UsageVerdict {
   if (assignments.length === 0) return { state: 'free', cause: 'no_schedule', decisive: null }
 

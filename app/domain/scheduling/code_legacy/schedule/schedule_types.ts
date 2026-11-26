@@ -20,6 +20,9 @@ import type { WeeklyWindow } from '#domain/scheduling/value_objects'
 // ---------------------------------------------------------------------------
 
 /** Plage telle que saisie : jour, heure de début et de fin (`HH:MM`). */
+/*
+Plage par semaine dayOfWeek - startTime - endTime
+*/
 export interface WeeklyWindowInput {
   readonly dayOfWeek: number
   readonly startTime: string
@@ -27,6 +30,9 @@ export interface WeeklyWindowInput {
 }
 
 /** Plage validée, telle que rendue par l'API. */
+/*
+Plage validée par l'api
+*/
 export interface WeeklyWindowJson {
   readonly dayOfWeek: DayOfWeek
   readonly startTime: string

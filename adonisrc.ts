@@ -38,6 +38,8 @@ export default defineConfig({
     () => import('@adonisjs/mail/mail_provider'),
     () => import('@adonisjs/transmit/transmit_provider'),
     () => import('#providers/container_provider'),
+    // Socket.IO (lecture et suivi des trajets) : serveur HTTP seulement.
+    { file: () => import('#providers/socket_provider'), environment: ['web'] },
   ],
 
   /*

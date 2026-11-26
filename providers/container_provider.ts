@@ -28,6 +28,11 @@ import {
 import { LucidTripRepository } from '#infrastructure/persistence/repositories/trip_repository'
 import { CachedDeviceResolver } from '#infrastructure/persistence/readers/device_resolver'
 import { TransmitBroadcaster } from '#infrastructure/realtime/transmit_broadcaster'
+import { LucidTripReader } from '#infrastructure/persistence/readers/trip_reader'
+import { ListTrips } from '#application/telemetry/use_cases/list_trips'
+import { GetTrip } from '#application/telemetry/use_cases/get_trip'
+import { ReadTripPoints } from '#application/telemetry/use_cases/read_trip_points'
+import { FollowVehicles } from '#application/telemetry/use_cases/follow_vehicles'
 import {
   LucidOrganizationRepository,
   LucidRoleCatalog,
@@ -161,6 +166,21 @@ export default class ContainerProvider {
       () => new LucidVehicleLastPositionRepository()
     )
     this.app.container.singleton(TransmitBroadcaster, () => new TransmitBroadcaster())
+    // ------------------------------------------------------------- lecture des trajets
+    this.app.container.singleton(LucidTripReader, () => new LucidTripReader())
+    this.app.container.singleton(
+      ListTrips,
+      async (r) => new ListTrips(await r.make(LucidTripReader))
+    )
+    this.app.container.singleton(GetTrip, async (r) => new GetTrip(await r.make(LucidTripReader)))
+    this.app.container.singleton(
+      ReadTripPoints,
+      async (r) => new ReadTripPoints(await r.make(LucidTripReader))
+    )
+    this.app.container.singleton(
+      FollowVehicles,
+      async (r) => new FollowVehicles(await r.make(LucidTripReader))
+    )
 
     // ------------------------------------------------------------- sécurité
     this.app.container.singleton(RequestImmobilization, () => {

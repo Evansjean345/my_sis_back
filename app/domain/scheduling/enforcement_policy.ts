@@ -40,6 +40,9 @@ import type {
  */
 
 /** Action nécessaire pour atteindre l'état voulu, compte tenu du moteur réel. */
+/*
+DesireUsage = "free" / "immobilized"
+*/
 export function requiredAction(
   desired: DesiredUsage,
   lastConfirmed: ConfirmedEngineCommand | null
@@ -51,14 +54,21 @@ export function requiredAction(
 }
 
 /** Moteur coupé par quelqu'un d'autre qu'un calendrier (opérateur, politique, intégration). */
+/*
+Fonction de coupure moteur manuel
+*/
 export function isManualCut(lastConfirmed: ConfirmedEngineCommand | null): boolean {
   return lastConfirmed?.commandType === 'engine_cut' && lastConfirmed.origin !== 'schedule'
 }
 
+/*
+Fonction pour décider de l'application pour une coupure moteur
+*/
 export function decideEnforcement(input: EnforcementInput): EnforcementDecision {
   const { desired, previous, lastConfirmed, now } = input
   const transition = !previous || previous.desired !== desired
   const enAttente = previous?.pendingAction ?? null
+  //constante pour decider de l'action requise
   const action = requiredAction(desired, lastConfirmed)
 
   if (!action) {
@@ -100,6 +110,9 @@ export function decideEnforcement(input: EnforcementInput): EnforcementDecision 
  * moment où elles se produisent (transition, ou fin d'une action en attente),
  * jamais à chaque passage.
  */
+/*
+Fonction de traitement d'une sortie s'il n'y a rien a faire
+*/
 function idleOutcome(
   input: EnforcementInput,
   enAttente: EnforcementAction | null,
