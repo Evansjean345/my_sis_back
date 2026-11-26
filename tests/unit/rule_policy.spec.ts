@@ -1,8 +1,15 @@
 import { test } from '@japa/runner'
 import {
+  EVENT_TYPES,
+  PUSH_ONLY_EVENT_TYPES,
+} from '#domain/policy/code_legacy/rule/rule_event_types'
+import type { RuleReferences } from '#domain/policy/code_legacy/rule/rule_types'
+import {
+  conditionTarget,
   geofenceAlerts,
   geofenceProblem,
   notificationChannels,
+  resolveConditions,
   ruleFieldsForEvent,
   ruleProblem,
   speedPolicyProblem,
@@ -117,5 +124,104 @@ test.group('Zones et politiques de vitesse', () => {
     assert.match(speedPolicyProblem({ ...p, limitKph: 250 })!, /5 et 200/)
     assert.match(speedPolicyProblem({ ...p, scope: 'zone' })!, /zone/)
     assert.match(speedPolicyProblem({ ...p, scope: 'vehicle' })!, /véhicule/)
+  })
+})
+
+test.group('Règles — référentiel', () => {
+  test('towing, tamper et harsh_driving ne sont plus des déclencheurs', ({ assert }) => {
+    for (const removed of ['towing', 'tamper', 'harsh_driving']) {
+      assert.notInclude(EVENT_TYPES as readonly string[], removed)
+      assert.notInclude(PUSH_ONLY_EVENT_TYPES as readonly string[], removed)
+    }
+    assert.lengthOf(EVENT_TYPES, 10)
+  })
+
+  test('cible normalisée', ({ assert }) => {
+    assert.deepEqual(conditionTarget(), { type: 'all' })
+    assert.deepEqual(conditionTarget({ type: 'fleet' }), { type: 'fleet', id: '' })
+    assert.deepEqual(conditionTarget({ type: 'vehicle', id: 'v1' }), { type: 'vehicle', id: 'v1' })
+  })
+})
+
+test.group('Règles — références du client', () => {
+  const refs: RuleReferences = {
+    speedPolicies: new Map([
+      ['p1', { name: 'Limite générale', active: true }],
+      ['p2', { name: 'Ancienne', active: false }],
+    ]),
+    zones: new Map([
+      ['z1', { name: 'Dépôt', active: true, alertOnEntry: false, alertOnExit: true }],
+      ['z2', { name: 'Port', active: true, alertOnEntry: true, alertOnExit: false }],
+    ]),
+    schedules: new Map([['s1', { name: 'Semaine', active: true }]]),
+    vehicles: new Map([
+      ['v1', { registration: 'AB-1234-CI', active: true }],
+      ['v2', { registration: 'CD-5678-CI', active: false }],
+    ]),
+    fleets: new Map([['f1', { name: 'Flotte Bus' }]]),
+  }
+
+  test('libellés calculés et cible résolue', ({ assert }) => {
+    const r = resolveConditions(
+      'overspeed',
+      [{ field: 'speed_policy', operator: 'eq', value: 'p1', target: { type: 'fleet', id: 'f1' } }],
+      refs
+    )
+    assert.notProperty(r, 'problem')
+    if ('conditions' in r) {
+      assert.equal(r.conditions[0].valueLabel, 'Limite générale')
+      assert.deepEqual(r.conditions[0].target, { type: 'fleet', id: 'f1', label: 'Flotte Bus' })
+      assert.equal(r.conditions[0].id, 'c1')
+    }
+  })
+
+  test('sortie de zone : plusieurs zones, chacune réglée pour la sortie', ({ assert }) => {
+    const ok = resolveConditions(
+      'geofence_exit',
+      [{ field: 'zone', operator: 'eq', value: '', values: ['z1'] }],
+      refs
+    )
+    assert.deepEqual('conditions' in ok ? ok.conditions[0].valueLabels : null, ['Dépôt'])
+    const ko = resolveConditions(
+      'geofence_exit',
+      [{ field: 'zone', operator: 'eq', value: '', values: ['z1', 'z2'] }],
+      refs
+    )
+    assert.match('problem' in ko ? ko.problem : '', /configurée pour l'événement/)
+  })
+
+  test('références inactives ou inconnues refusées', ({ assert }) => {
+    const policy = resolveConditions(
+      'overspeed',
+      [{ field: 'speed_policy', operator: 'eq', value: 'p2' }],
+      refs
+    )
+    assert.match('problem' in policy ? policy.problem : '', /politique de vitesse active/)
+    const vehicle = resolveConditions(
+      'overspeed',
+      [
+        {
+          field: 'speed_policy',
+          operator: 'eq',
+          value: 'p1',
+          target: { type: 'vehicle', id: 'v2' },
+        },
+      ],
+      refs
+    )
+    assert.match('problem' in vehicle ? vehicle.problem : '', /véhicule choisi/)
+    const fleet = resolveConditions(
+      'schedule_violation',
+      [
+        {
+          field: 'schedule',
+          operator: 'eq',
+          value: 's1',
+          target: { type: 'fleet', id: 'inconnue' },
+        },
+      ],
+      refs
+    )
+    assert.match('problem' in fleet ? fleet.problem : '', /flotte choisie/)
   })
 })

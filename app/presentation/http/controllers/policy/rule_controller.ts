@@ -1,27 +1,23 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
+import type { RuleConditionInput } from '#domain/policy/code_legacy/rule/rule_types'
 import {
-  type ConditionTarget,
-  type EventType,
+  conditionTarget,
   notificationChannels,
-  type RuleConditionInput,
+  resolveConditions,
   ruleProblem,
-  zoneIdsOf,
 } from '#domain/policy/rule_policy'
 import { LucidAuditLogger } from '#infrastructure/persistence/audit_logger'
 import {
   findRuleDto,
   listRules,
   referencesOf,
-  type RuleConditionDto,
   ruleNameTaken,
   saveRule,
 } from '#infrastructure/persistence/repositories/rule_engine_repository'
 import { toExecutionContext } from '#presentation/http/support/execution_context'
 import { ruleValidator } from '#presentation/http/validators/policy/rule_engine_validators'
 import { RuleEngineBase } from '#presentation/http/controllers/policy/rule_engine_base'
-
-type References = Awaited<ReturnType<typeof referencesOf>>
 
 /**
  * =========================================================================
@@ -40,7 +36,9 @@ type References = Awaited<ReturnType<typeof referencesOf>>
  *   - au moins une action ; notification : push toujours, SMS / e-mail
  *     seulement hors événements « push seul ».
  *
- * Les libellés (`valueLabel`, `target.label`) sont recalculés ici.
+ * Forme : `ruleProblem` ; références et libellés (`valueLabel`,
+ * `target.label`) : `resolveConditions` — deux fonctions pures du domaine.
+ * Ce contrôleur ne fait que charger, orchestrer et répondre.
  */
 @inject()
 export default class RuleController extends RuleEngineBase {
@@ -99,7 +97,7 @@ export default class RuleController extends RuleEngineBase {
       operator: c.operator,
       value: c.value ?? '',
       values: c.values,
-      target: cible(c.target),
+      target: conditionTarget(c.target),
     }))
     const actions = champs.actions.map((a) => ({
       type: a.type,
@@ -110,9 +108,9 @@ export default class RuleController extends RuleEngineBase {
     if (probleme) return this.regle(ctx, 'E_VALIDATION', probleme)
     if (await ruleNameTaken(organizationId, champs.name, id)) return this.nomPris(ctx)
 
-    const refs = await referencesOf(organizationId)
-    const resolues = resoudre(trigger, conditions, refs)
-    if (typeof resolues === 'string') return this.regle(ctx, 'E_VALIDATION', resolues)
+    // Références du client (zones, politiques, véhicules…) vérifiées par le domaine.
+    const resolution = resolveConditions(trigger, conditions, await referencesOf(organizationId))
+    if ('problem' in resolution) return this.regle(ctx, 'E_VALIDATION', resolution.problem)
 
     const avant = id ? await findRuleDto(id) : null
     const ruleId = await this.enregistrer(ctx, () =>
@@ -122,7 +120,7 @@ export default class RuleController extends RuleEngineBase {
           name: champs.name,
           description: champs.description ?? null,
           trigger,
-          conditions: resolues,
+          conditions: resolution.conditions,
           actions,
           severity: champs.severity,
           active: champs.active ?? true,
@@ -139,79 +137,6 @@ export default class RuleController extends RuleEngineBase {
     })
     return id ? ctx.response.ok({ data: regle }) : ctx.response.created({ data: regle })
   }
-}
-
-function cible(t?: { type: 'all' | 'vehicle' | 'fleet'; id?: string }): ConditionTarget {
-  if (!t || t.type === 'all') return { type: 'all' }
-  return { type: t.type, id: t.id ?? '' }
-}
-
-/**
- * Vérifie les références des conditions dans l'organisation et calcule leurs
- * libellés. Renvoie le message d'erreur, ou les conditions prêtes à stocker.
- */
-function resoudre(
-  trigger: EventType,
-  conditions: RuleConditionInput[],
-  refs: References
-): RuleConditionDto[] | string {
-  const sortie: RuleConditionDto[] = []
-  for (const [i, c] of conditions.entries()) {
-    const out: RuleConditionDto = {
-      id: `c${i + 1}`,
-      field: c.field,
-      operator: c.operator,
-      value: c.value,
-    }
-
-    if (c.field === 'speed_policy') {
-      const p = refs.speedPolicies.get(c.value)
-      if (!p?.is_active) return 'Choisissez une politique de vitesse active de ce client.'
-      out.valueLabel = p.name
-    }
-    if (c.field === 'zone') {
-      const ids = zoneIdsOf(trigger, c)
-      const zones = ids.map((z) => refs.zones.get(z))
-      const reglee = (z: any) =>
-        z?.is_active &&
-        (trigger === 'geofence_exit'
-          ? z.alert_on_exit
-          : trigger === 'geofence_entry'
-            ? z.alert_on_entry
-            : true)
-      if (zones.some((z) => !reglee(z))) {
-        return "Chaque zone choisie doit être active et configurée pour l'événement."
-      }
-      out.value = ids[0]
-      out.valueLabel = zones[0]!.name
-      if (trigger === 'geofence_exit') {
-        out.values = ids
-        out.valueLabels = zones.map((z) => z!.name)
-      }
-    }
-    if (c.field === 'schedule') {
-      const s = refs.schedules.get(c.value)
-      if (!s?.is_active) return 'Choisissez un calendrier actif de ce client.'
-      out.valueLabel = s.name
-    }
-
-    const t = c.target ?? { type: 'all' as const }
-    if (t.type === 'vehicle') {
-      const v = refs.vehicles.get(t.id)
-      if (!v || v.status !== 'active') {
-        return "Le véhicule choisi n'est pas actif ou n'appartient pas à ce client."
-      }
-      out.target = { type: 'vehicle', id: t.id, label: v.registration }
-    } else if (t.type === 'fleet') {
-      const f = refs.fleets.get(t.id)
-      if (!f) return "La flotte choisie n'appartient pas à ce client."
-      out.target = { type: 'fleet', id: t.id, label: f.name }
-    } else {
-      out.target = { type: 'all' }
-    }
-    sortie.push(out)
-  }
-  return sortie
 }
 
 function resume(r: NonNullable<Awaited<ReturnType<typeof findRuleDto>>>) {

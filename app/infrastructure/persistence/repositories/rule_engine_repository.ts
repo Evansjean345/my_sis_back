@@ -1,15 +1,15 @@
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
-  ConditionTarget,
-  EventType,
+  GeofenceKind,
+  GeofenceShape,
   LatLng,
-  RuleActionType,
-  RuleField,
-  RuleOperator,
-  Severity,
-  SpeedScope,
-} from '#domain/policy/rule_policy'
+} from '#domain/policy/code_legacy/rule/geofence_types'
+import type { RuleActionType } from '#domain/policy/code_legacy/rule/rule_actions'
+import type { Severity } from '#domain/policy/code_legacy/rule/rule_event_severity'
+import type { EventType } from '#domain/policy/code_legacy/rule/rule_event_types'
+import type { ResolvedCondition, RuleReferences } from '#domain/policy/code_legacy/rule/rule_types'
+import type { SpeedScope } from '#domain/policy/code_legacy/rule/speed_policy_types'
 
 /**
  * =========================================================================
@@ -41,11 +41,11 @@ export interface GeofenceDto {
   organization: OrganizationRef
   name: string
   description: string | null
-  shape: 'circle' | 'polygon'
+  shape: GeofenceShape
   center: LatLng | null
   radiusM: number | null
   points: LatLng[]
-  kind: 'authorized' | 'forbidden'
+  kind: GeofenceKind
   alertOnEntry: boolean
   alertOnExit: boolean
   vehicleIds: string[]
@@ -58,11 +58,11 @@ export interface GeofenceInput {
   organizationId: string
   name: string
   description: string | null
-  shape: 'circle' | 'polygon'
+  shape: GeofenceShape
   center: LatLng | null
   radiusM: number | null
   points: LatLng[]
-  kind: 'authorized' | 'forbidden'
+  kind: GeofenceKind
   alertOnEntry: boolean
   alertOnExit: boolean
   vehicleIds: string[]
@@ -363,16 +363,8 @@ export async function saveSpeedPolicy(
 //  Règles
 // =========================================================================
 
-export interface RuleConditionDto {
-  id: string
-  field: RuleField
-  operator: RuleOperator
-  value: string
-  values?: string[]
-  valueLabel?: string
-  valueLabels?: string[]
-  target?: ConditionTarget
-}
+/** Condition stockée (jsonb) et renvoyée : la forme vérifiée du domaine. */
+export type RuleConditionDto = ResolvedCondition
 
 export interface RuleActionDto {
   id: string
@@ -582,7 +574,11 @@ export async function organizationExists(id: string): Promise<boolean> {
 }
 
 /** Noms des références d'une organisation, pour vérifier et étiqueter les conditions. */
-export async function referencesOf(organizationId: string) {
+/**
+ * Références d'une organisation (politiques de vitesse, zones, calendriers,
+ * véhicules, flottes), au format du domaine (`RuleReferences`).
+ */
+export async function referencesOf(organizationId: string): Promise<RuleReferences> {
   const [policies, zones, schedules, vehicles, fleets] = await Promise.all([
     db
       .from('speed_policies')
@@ -611,10 +607,25 @@ export async function referencesOf(organizationId: string) {
       .select('id', 'name'),
   ])
   return {
-    speedPolicies: new Map(policies.map((p: any) => [p.id, p])),
-    zones: new Map(zones.map((z: any) => [z.id, z])),
-    schedules: new Map(schedules.map((s: any) => [s.id, s])),
-    vehicles: new Map(vehicles.map((v: any) => [v.id, v])),
-    fleets: new Map(fleets.map((f: any) => [f.id, f])),
+    speedPolicies: new Map(policies.map((p: any) => [p.id, { name: p.name, active: p.is_active }])),
+    zones: new Map(
+      zones.map((z: any) => [
+        z.id,
+        {
+          name: z.name,
+          active: z.is_active,
+          alertOnEntry: z.alert_on_entry,
+          alertOnExit: z.alert_on_exit,
+        },
+      ])
+    ),
+    schedules: new Map(schedules.map((s: any) => [s.id, { name: s.name, active: s.is_active }])),
+    vehicles: new Map(
+      vehicles.map((v: any) => [
+        v.id,
+        { registration: v.registration, active: v.status === 'active' },
+      ])
+    ),
+    fleets: new Map(fleets.map((f: any) => [f.id, { name: f.name }])),
   }
 }

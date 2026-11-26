@@ -1,12 +1,16 @@
 import vine from '@vinejs/vine'
+import { GEOFENCE_KINDS, GEOFENCE_SHAPES } from '#domain/policy/code_legacy/rule/geofence_types'
+import { RULE_ACTION_TYPES } from '#domain/policy/code_legacy/rule/rule_actions'
+import { SEVERITIES } from '#domain/policy/code_legacy/rule/rule_event_severity'
+import { EVENT_TYPES } from '#domain/policy/code_legacy/rule/rule_event_types'
+import { RULE_FIELDS } from '#domain/policy/code_legacy/rule/rule_fields'
+import { NOTIFICATION_CHANNELS } from '#domain/policy/code_legacy/rule/rule_notification_channels'
+import { RULE_OPERATORS } from '#domain/policy/code_legacy/rule/rule_operators'
 import {
-  EVENT_TYPES,
-  RULE_ACTION_TYPES,
-  RULE_FIELDS,
-  RULE_OPERATORS,
-  SEVERITIES,
+  SPEED_LIMIT_MAX_KPH,
+  SPEED_LIMIT_MIN_KPH,
   SPEED_SCOPES,
-} from '#domain/policy/rule_policy'
+} from '#domain/policy/code_legacy/rule/speed_policy_types'
 
 /**
  * Schémas du moteur de règles (migration 032) — mêmes charges utiles que le
@@ -29,11 +33,11 @@ export const geofenceValidator = vine.compile(
     organizationId: vine.string().uuid().optional(),
     name: name(),
     description: description(),
-    shape: vine.enum(['circle', 'polygon'] as const),
+    shape: vine.enum(GEOFENCE_SHAPES),
     center: latLng().nullable().optional(),
     radiusM: vine.number().min(0).max(100_000).nullable().optional(),
     points: vine.array(latLng()).maxLength(500).optional(),
-    kind: vine.enum(['authorized', 'forbidden'] as const),
+    kind: vine.enum(GEOFENCE_KINDS),
     /** Ignorés : l'événement surveillé est déduit du type de zone. */
     alertOnEntry: vine.boolean().optional(),
     alertOnExit: vine.boolean().optional(),
@@ -56,7 +60,7 @@ export const speedPolicyValidator = vine.compile(
     scope: vine.enum(SPEED_SCOPES),
     zoneId: vine.string().uuid().nullable().optional(),
     vehicleIds: uuids().optional(),
-    limitKph: vine.number().withoutDecimals().min(5).max(200),
+    limitKph: vine.number().withoutDecimals().min(SPEED_LIMIT_MIN_KPH).max(SPEED_LIMIT_MAX_KPH),
     toleranceKph: vine.number().withoutDecimals().min(0).max(50).optional(),
     minDurationSeconds: vine.number().withoutDecimals().min(0).max(3600).optional(),
     severity: vine.enum(SEVERITIES),
@@ -98,7 +102,7 @@ export const ruleValidator = vine.compile(
           id: vine.string().maxLength(64).optional(),
           type: vine.enum(RULE_ACTION_TYPES),
           value: vine.string().trim().maxLength(200).optional(),
-          channels: vine.array(vine.enum(['sms', 'email', 'push'] as const)).optional(),
+          channels: vine.array(vine.enum(NOTIFICATION_CHANNELS)).optional(),
         })
       )
       .maxLength(10),

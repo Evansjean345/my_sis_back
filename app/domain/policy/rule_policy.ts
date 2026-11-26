@@ -1,135 +1,81 @@
+/*
+actions lié à une règle
+*/
+import { ACTIONS_WITHOUT_VALUE } from '#domain/policy/code_legacy/rule/rule_actions'
+/*
+severité d'une règle
+*/
+import { SEVERITIES, type Severity } from '#domain/policy/code_legacy/rule/rule_event_severity'
+/*
+types d'évènements lié à une règle
+*/
+import {
+  type EventType,
+  PUSH_ONLY_EVENT_TYPES,
+} from '#domain/policy/code_legacy/rule/rule_event_types'
+/*
+champs d'une règle
+*/
+import {
+  EVENT_RULE_FIELDS,
+  RULE_OPERATORS_BY_FIELD,
+  type RuleField,
+  TIME_RANGE_PATTERN,
+} from '#domain/policy/code_legacy/rule/rule_fields'
+/*
+canal de notification
+*/
+import type { NotificationChannel } from '#domain/policy/code_legacy/rule/rule_notification_channels'
+/*
+types de règles
+*/
+import type {
+  ConditionTarget,
+  ResolvedCondition,
+  RuleConditionInput,
+  RuleDraft,
+  RuleReferences,
+} from '#domain/policy/code_legacy/rule/rule_types'
+/*
+type de geofence
+*/
+import {
+  type GeofenceDraft,
+  type GeofenceKind,
+  MIN_CIRCLE_RADIUS_M,
+  MIN_POLYGON_POINTS,
+} from '#domain/policy/code_legacy/rule/geofence_types'
+/*
+types de règles pour une politique de vitesse
+*/
+import {
+  SPEED_LIMIT_MAX_KPH,
+  SPEED_LIMIT_MIN_KPH,
+  type SpeedPolicyDraft,
+} from '#domain/policy/code_legacy/rule/speed_policy_types'
+
 /**
  * =========================================================================
- *  MOTEUR DE RÈGLES — règles pures, sans I/O
+ *  MOTEUR DE RÈGLES — fonctions pures, sans I/O
  * =========================================================================
  *
- * Référentiel partagé avec le tableau de bord (spécifications §III.2 / §III.3) :
- * événements, gravités, champs et opérateurs de condition, types d'action,
- * canaux de notification. Les vérifications qui demandent la base
- * (appartenance d'une zone, d'un véhicule…) restent dans les contrôleurs.
+ * Les référentiels (événements, gravités, champs, opérateurs, actions,
+ * canaux) et les interfaces sont dans `domain/code_legacy/rule/`. Ce fichier
+ * ne contient que les règles de gestion qui les utilisent.
+ *
+ * Les données qui demandent la base (zones, politiques, véhicules… d'une
+ * organisation) sont chargées par l'infrastructure et passées en paramètre
+ * (`RuleReferences`).
  */
 
-/** Événements GPS normalisés qui déclenchent une règle. */
-/*
-types d'évènements liés à une règle
-*/
-//code_legacy/event_types
-export const EVENT_TYPES = [
-  'overspeed',
-  'geofence_exit',
-  'geofence_entry',
-  'schedule_violation',
-  'power_cut',
-  'disconnection',
-  'sos',
-  'jamming', //broullaige
-  'towing', //remorquage
-  'tamper', //altérer
-  'harsh_driving', //conduite brutale
-  'engine_start',
-  'engine_stop',
-] as const
-export type EventType = (typeof EVENT_TYPES)[number]
+// ------------------------------------------------------------------ règles
 
-/*
-critique / haut / moyen et faible
-*/
-export const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
-export type Severity = (typeof SEVERITIES)[number]
-
-//code_legacy/event_notification_channel
-/*
-envoi des notifications pour les évènements 
-sms / email / push
- */
-export const NOTIFICATION_CHANNELS = ['sms', 'email', 'push'] as const
-export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
-
-//code_legacy/rule_fields
-/*
-moteur de règles pour les évènements
-speed
-speed_policy
-zone
-time
-schedule
-ignition
-vehicule
-*/
-export const RULE_FIELDS = [
-  'speed',
-  'speed_policy',
-  'zone',
-  'time',
-  'duration',
-  'schedule',
-  'ignition',
-  'vehicle',
-] as const
-export type RuleField = (typeof RULE_FIELDS)[number]
-
-/*
-condition de sévérité d'un évènements
-gt > greater than 
-lt < less than
-eq = equal
-neq != not equal
-in = inside
-outside = outside
-*/
-export const RULE_OPERATORS = ['gt', 'lt', 'eq', 'neq', 'in', 'outside'] as const
-export type RuleOperator = (typeof RULE_OPERATORS)[number]
-
-export const RULE_OPERATORS_BY_FIELD: Record<RuleField, readonly RuleOperator[]> = {
-  speed: ['gt', 'lt', 'eq', 'neq'],
-  speed_policy: ['eq', 'neq'],
-  zone: ['eq'],
-  time: ['in', 'outside'],
-  duration: ['gt', 'lt', 'eq', 'neq'],
-  schedule: ['eq'],
-  ignition: ['eq', 'neq'],
-  vehicle: ['eq', 'neq'],
-}
-
-/** Conditions acceptées par événement : celles qui peuvent réellement le produire. */
-//code_legacy/rule_fields
-const EVENT_RULE_FIELDS: Partial<Record<EventType, readonly RuleField[]>> = {
-  overspeed: ['speed_policy'],
-  geofence_exit: ['zone'],
-  geofence_entry: ['zone'],
-  schedule_violation: ['schedule'],
-}
-
-/*
-
-------------------------------------------------------------------------------------------------------
-Fonction dans rule_policy
-*/
-/*
-champs de règles pour les évènements
-*/
+/** Champs de condition acceptés pour un événement. */
 export function ruleFieldsForEvent(event: EventType): readonly RuleField[] {
   return EVENT_RULE_FIELDS[event] ?? []
 }
 
-/** Événements toujours notifiés par push seul (masqués des formulaires de règle). */
-/*
-évènements notifiés par push notifications
-*/
-export const PUSH_ONLY_EVENT_TYPES: readonly EventType[] = [
-  'towing', //towing
-  'sos', //sos
-  'jamming',
-  'engine_stop',
-  'harsh_driving',
-  'tamper',
-  'disconnection',
-]
-
 /** Canaux d'une notification : push toujours, plus SMS / e-mail si l'événement le permet. */
-/*
-fonction pour envoyés soit des évènements par sms ou email
-*/
 export function notificationChannels(
   event: EventType,
   channels: readonly string[] = []
@@ -143,42 +89,10 @@ export function notificationChannels(
   ]
 }
 
-/*
-moteur de règles pour notifier les actions d'un évènements
-soit une alerte / une notification / un incident / une commande
-*/
-export const RULE_ACTION_TYPES = ['alert', 'notify', 'incident', 'command'] as const
-export type RuleActionType = (typeof RULE_ACTION_TYPES)[number]
-
-/*
-Ciblage pour soit toute l'organisation , le véhicule ou la flotte
-*/
-export type ConditionTarget =
-  | { type: 'all' }
-  | { type: 'vehicle'; id: string; label?: string }
-  | { type: 'fleet'; id: string; label?: string }
-
-export interface RuleConditionInput {
-  field: RuleField
-  operator: RuleOperator
-  value: string
-  values?: string[]
-  target?: ConditionTarget
-}
-
-export interface RuleActionInput {
-  type: RuleActionType
-  value: string
-  channels?: string[]
-}
-
-const TIME_RANGE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
-
 /**
  * Zones visées par une condition `zone` : pour une SORTIE, plusieurs zones
- * (OU) ; sinon une seule.
+ * (OU), dédoublonnées ; sinon une seule.
  */
-//zone visé pour une condition ou une règle
 export function zoneIdsOf(trigger: EventType, condition: RuleConditionInput): string[] {
   if (trigger === 'geofence_exit') {
     const ids = condition.values?.length
@@ -191,25 +105,25 @@ export function zoneIdsOf(trigger: EventType, condition: RuleConditionInput): st
   return condition.value ? [condition.value] : []
 }
 
+/** Cible normalisée d'une condition : `all` par défaut, id vide si absent. */
+export function conditionTarget(target?: {
+  type: ConditionTarget['type']
+  id?: string
+}): ConditionTarget {
+  if (!target || target.type === 'all') return { type: 'all' }
+  return { type: target.type, id: target.id ?? '' }
+}
+
 /**
  * Cohérence d'une règle (forme seulement) : renvoie le premier problème, ou
  * `null`. Messages destinés à l'utilisateur.
  */
-export function ruleProblem(input: {
-  name: string
-  trigger: EventType
-  conditions: readonly RuleConditionInput[]
-  actions: readonly RuleActionInput[]
-}): string | null {
-  //condition pour choisir au moins une règle
+export function ruleProblem(input: RuleDraft): string | null {
   if (!input.name.trim()) return 'Nom de la règle obligatoire.'
-  //condition pour choisir au moins une action
   if (input.actions.length === 0) return 'Ajoutez au moins une action.'
-  //condition pour renseigner le type de chaque action
-  if (input.actions.some((a) => a.type !== 'alert' && a.type !== 'notify' && !a.value.trim())) {
+  if (input.actions.some((a) => !ACTIONS_WITHOUT_VALUE.includes(a.type) && !a.value.trim())) {
     return 'Renseignez le paramètre de chaque action.'
   }
-  //condition pour choisir la gravité d'une règle
   if (input.actions.some((a) => a.type === 'alert' && !SEVERITIES.includes(a.value as Severity))) {
     return 'Choisissez une gravité valide pour chaque alerte.'
   }
@@ -227,7 +141,7 @@ export function ruleProblem(input: {
     if ((c.field === 'speed' || c.field === 'duration') && !(Number(c.value) >= 0)) {
       return 'La vitesse et la durée doivent être supérieures ou égales à zéro.'
     }
-    if (c.field === 'time' && !TIME_RANGE.test(c.value)) {
+    if (c.field === 'time' && !TIME_RANGE_PATTERN.test(c.value)) {
       return 'Indiquez une plage horaire valide (HH:MM-HH:MM).'
     }
     if (c.target && c.target.type !== 'all' && !c.target.id) {
@@ -239,17 +153,83 @@ export function ruleProblem(input: {
   return null
 }
 
-// ---------------------------------------------------------------- zones
-
-export interface LatLng {
-  lat: number
-  lng: number
+/** Une zone est-elle réglée pour cet événement (entrée ou sortie) ? */
+function zoneWatches(
+  zone: { active: boolean; alertOnEntry: boolean; alertOnExit: boolean } | undefined,
+  trigger: EventType
+): boolean {
+  if (!zone?.active) return false
+  if (trigger === 'geofence_exit') return zone.alertOnExit
+  if (trigger === 'geofence_entry') return zone.alertOnEntry
+  return true
 }
 
-/** Rayon minimal d'une zone circulaire (mètres). */
-export const MIN_CIRCLE_RADIUS_M = 50
+/**
+ * Vérifie les références des conditions dans l'organisation et calcule leurs
+ * libellés (à appeler après `ruleProblem`) :
+ *   - politique de vitesse, zone, calendrier : ACTIFS et du même client ;
+ *   - une zone doit être réglée pour l'événement (entrée / sortie) ;
+ *   - cible : véhicule actif ou flotte du client.
+ * Renvoie le premier problème, ou les conditions prêtes à stocker.
+ */
+export function resolveConditions(
+  trigger: EventType,
+  conditions: readonly RuleConditionInput[],
+  refs: RuleReferences
+): { problem: string } | { conditions: ResolvedCondition[] } {
+  const resolved: ResolvedCondition[] = []
+  for (const [i, c] of conditions.entries()) {
+    const out: ResolvedCondition = {
+      id: `c${i + 1}`,
+      field: c.field,
+      operator: c.operator,
+      value: c.value,
+      target: { type: 'all' },
+    }
 
-export type GeofenceKind = 'authorized' | 'forbidden'
+    if (c.field === 'speed_policy') {
+      const policy = refs.speedPolicies.get(c.value)
+      if (!policy?.active)
+        return { problem: 'Choisissez une politique de vitesse active de ce client.' }
+      out.valueLabel = policy.name
+    }
+    if (c.field === 'zone') {
+      const ids = zoneIdsOf(trigger, c)
+      const zones = ids.map((id) => refs.zones.get(id))
+      if (zones.some((z) => !zoneWatches(z, trigger))) {
+        return { problem: "Chaque zone choisie doit être active et configurée pour l'événement." }
+      }
+      out.value = ids[0]
+      out.valueLabel = zones[0]!.name
+      if (trigger === 'geofence_exit') {
+        out.values = ids
+        out.valueLabels = zones.map((z) => z!.name)
+      }
+    }
+    if (c.field === 'schedule') {
+      const schedule = refs.schedules.get(c.value)
+      if (!schedule?.active) return { problem: 'Choisissez un calendrier actif de ce client.' }
+      out.valueLabel = schedule.name
+    }
+
+    const target = c.target ?? { type: 'all' as const }
+    if (target.type === 'vehicle') {
+      const vehicle = refs.vehicles.get(target.id)
+      if (!vehicle?.active) {
+        return { problem: "Le véhicule choisi n'est pas actif ou n'appartient pas à ce client." }
+      }
+      out.target = { type: 'vehicle', id: target.id, label: vehicle.registration }
+    } else if (target.type === 'fleet') {
+      const fleet = refs.fleets.get(target.id)
+      if (!fleet) return { problem: "La flotte choisie n'appartient pas à ce client." }
+      out.target = { type: 'fleet', id: target.id, label: fleet.name }
+    }
+    resolved.push(out)
+  }
+  return { conditions: resolved }
+}
+
+// ------------------------------------------------------------------- zones
 
 /**
  * Événement surveillé par une zone, déduit de son TYPE :
@@ -264,14 +244,8 @@ export function geofenceAlerts(kind: GeofenceKind): {
   return { alertOnEntry: kind === 'forbidden', alertOnExit: kind === 'authorized' }
 }
 
-//fonction utilitaire pour les géofence
-export function geofenceProblem(input: {
-  name: string
-  shape: 'circle' | 'polygon'
-  center: LatLng | null
-  radiusM: number | null
-  points: readonly LatLng[]
-}): string | null {
+/** Géométrie d'une zone : premier problème, ou `null`. */
+export function geofenceProblem(input: GeofenceDraft): string | null {
   if (!input.name.trim()) return 'Nom de la zone obligatoire.'
   if (
     input.shape === 'circle' &&
@@ -279,27 +253,20 @@ export function geofenceProblem(input: {
   ) {
     return `Cercle : placez le centre sur la carte, rayon de ${MIN_CIRCLE_RADIUS_M} m minimum.`
   }
-  if (input.shape === 'polygon' && input.points.length < 3) {
-    return 'Polygone : cliquez au moins 3 sommets sur la carte.'
+  if (input.shape === 'polygon' && input.points.length < MIN_POLYGON_POINTS) {
+    return `Polygone : cliquez au moins ${MIN_POLYGON_POINTS} sommets sur la carte.`
   }
   return null
 }
 
-// ---------------------------------------------------- politiques de vitesse
-//porté de la vitesse sur une zone / global / vehicule
-export const SPEED_SCOPES = ['global', 'zone', 'vehicle'] as const
-export type SpeedScope = (typeof SPEED_SCOPES)[number]
+// --------------------------------------------------- politiques de vitesse
 
-//choisissez une ploitique de vitesse
-export function speedPolicyProblem(input: {
-  name: string
-  scope: SpeedScope
-  zoneId: string | null
-  vehicleIds: readonly string[]
-  limitKph: number
-}): string | null {
+/** Politique de vitesse : premier problème, ou `null`. */
+export function speedPolicyProblem(input: SpeedPolicyDraft): string | null {
   if (!input.name.trim()) return 'Nom obligatoire.'
-  if (input.limitKph < 5 || input.limitKph > 200) return 'Limite entre 5 et 200 km/h.'
+  if (input.limitKph < SPEED_LIMIT_MIN_KPH || input.limitKph > SPEED_LIMIT_MAX_KPH) {
+    return `Limite entre ${SPEED_LIMIT_MIN_KPH} et ${SPEED_LIMIT_MAX_KPH} km/h.`
+  }
   if (input.scope === 'zone' && !input.zoneId) return 'Choisissez une zone de ce client.'
   if (input.scope === 'vehicle' && input.vehicleIds.length === 0) {
     return 'Choisissez au moins un véhicule.'
