@@ -1,54 +1,51 @@
-import { Emitter } from '@socket.io/redis-emitter'
-import logger from '@adonisjs/core/services/logger'
-import type { RealtimeBroadcaster } from '#application/telemetry/ports'
-import type { TripLiveUpdate } from '#domain/telemetry/code_legacy/trip/trip_reading_types'
-import {
-  TRIPS_NAMESPACE,
-  TRIP_SERVER_EVENTS,
-  tripRooms,
-} from '#infrastructure/realtime/socket/socket_contract'
+import type { Server as HttpServer } from 'node:http'
+import type { Server as HttpsServer } from 'node:https'
+import { Server } from 'socket.io'
+import { createAdapter } from '@socket.io/redis-adapter'
 
-/** Client Redis accepté par l'émetteur (ioredis). */
-type RedisClient = ConstructorParameters<typeof Emitter>[0]
+/** Client Redis (ioredis) : publication, et son double pour l'abonnement. */
+interface DuplicableRedis {
+  duplicate(): unknown
+}
+
+export interface SocketServerOptions {
+  path: string
+  corsOrigin: '*' | string[]
+  pingIntervalMs: number
+  pingTimeoutMs: number
+  maxHttpBufferSize: number
+}
 
 /**
- * Diffusion Socket.IO depuis N'IMPORTE QUEL processus.
+ * =========================================================================
+ *  SERVEUR SOCKET.IO — attaché au serveur HTTP de l'API
+ * =========================================================================
  *
- * L'ingestion (`node ace sisbm:ingest`) ne porte pas le serveur Socket.IO :
- * elle publie dans Redis, et l'adaptateur Redis du serveur (processus API,
- * une ou plusieurs instances) relaie aux connexions des salles visées.
+ * Même port que l'API, chemin dédié (`/socket.io` par défaut) : un seul
+ * domaine, un seul certificat, un seul bloc Nginx.
  *
- *   trip:started / trip:closed  → salles org:<id> et vehicle:<id>
- *   trip:progress (points)      → salle vehicle:<id> seulement : seuls les
- *                                 écrans qui suivent CE véhicule reçoivent ses points
+ * Adaptateur Redis : les salles sont partagées entre instances de l'API, et
+ * l'émetteur Redis de l'ingestion atteint toutes les connexions.
  *
- * Best-effort, comme la diffusion SSE : un échec n'interrompt jamais l'ingestion.
+ * Transports : WebSocket d'abord, long-polling en repli (proxy d'entreprise,
+ * réseau mobile qui bloque la mise à niveau). Le jeton circule dans
+ * `auth.token` du handshake, jamais dans l'URL : il n'apparaît pas dans les
+ * journaux d'accès Nginx.
  */
-export class SocketIoBroadcaster implements RealtimeBroadcaster {
-  readonly #trips: ReturnType<Emitter['of']>
-
-  constructor(redis: RedisClient) {
-    this.#trips = new Emitter(redis).of(TRIPS_NAMESPACE)
-  }
-
-  /** Positions : déjà diffusées par le flux SSE (`org/:id/positions`). */
-  async publishPosition(): Promise<void> {}
-
-  async publishTrip(organizationId: string, update: TripLiveUpdate): Promise<void> {
-    try {
-      const vehicule = tripRooms.vehicle(update.trip.vehicleId)
-      if (update.type === 'progress') {
-        this.#trips.to(vehicule).emit(TRIP_SERVER_EVENTS.progress, update)
-        return
-      }
-      this.#trips
-        .to([tripRooms.organization(organizationId), vehicule])
-        .emit(TRIP_SERVER_EVENTS[update.type], update)
-    } catch (err) {
-      logger.warn(
-        { err, organizationId },
-        '[socket.io] diffusion de trajet en échec — sans incidence'
-      )
-    }
-  }
+export function createSocketServer(
+  httpServer: HttpServer | HttpsServer,
+  redis: DuplicableRedis,
+  options: SocketServerOptions
+): Server {
+  return new Server(httpServer, {
+    path: options.path,
+    serveClient: false,
+    transports: ['websocket', 'polling'],
+    pingInterval: options.pingIntervalMs,
+    pingTimeout: options.pingTimeoutMs,
+    maxHttpBufferSize: options.maxHttpBufferSize,
+    // Le jeton est porté par le handshake, pas par un cookie : pas d'identifiants CORS.
+    cors: { origin: options.corsOrigin, methods: ['GET', 'POST'], credentials: false },
+    adapter: createAdapter(redis, redis.duplicate()),
+  })
 }

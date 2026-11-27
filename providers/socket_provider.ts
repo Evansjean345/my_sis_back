@@ -28,8 +28,7 @@ export default class SocketProvider {
 
     const { default: logger } = await import('@adonisjs/core/services/logger')
     const { default: redis } = await import('@adonisjs/redis/services/main')
-    const { createSocketServer }: any =
-      await import('#infrastructure/realtime/socket/socket_io_server')
+    const { createSocketServer } = await import('#infrastructure/realtime/socket/socket_io_server')
     const { SocketAuthenticator } =
       await import('#infrastructure/realtime/socket/socket_authenticator')
     const { LucidTripReader } = await import('#infrastructure/persistence/readers/trip_reader')
@@ -48,7 +47,7 @@ export default class SocketProvider {
       getTrip: await this.app.container.make(GetTrip),
       readTripPoints: await this.app.container.make(ReadTripPoints),
       followVehicles: await this.app.container.make(FollowVehicles),
-      sessionCheckSeconds: Number(config.sessionCheckSeconds),
+      sessionCheckSeconds: config.sessionCheckSeconds,
     })
     this.#stop = gateway.stop
     logger.info(`[socket.io] prêt sur ${config.path} (espace /trips)`)
