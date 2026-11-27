@@ -7,6 +7,10 @@ import type {
   TripReadScope,
   TripSummary,
 } from '#domain/telemetry/code_legacy/trip/trip_reading_types'
+import type {
+  TripReportQuery,
+  VehicleTripStats,
+} from '#domain/telemetry/code_legacy/trip/trip_report_types'
 
 /**
  * Ports applicatifs du contexte Télémétrie.
@@ -102,6 +106,8 @@ export interface TripReader {
   /** Véhicules vivants de ce périmètre, parmi `vehicleIds`. */
   vehiclesInScope(scope: TripReadScope, vehicleIds: readonly string[]): Promise<string[]>
   organizationExists(organizationId: string): Promise<boolean>
+  /** Trajets par véhicule sur la période (tous les véhicules de l'organisation, même sans trajet). */
+  vehicleStats(query: TripReportQuery): Promise<VehicleTripStats[]>
 }
 
 export type { TelemetryFrame }

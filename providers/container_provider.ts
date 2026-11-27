@@ -33,6 +33,11 @@ import { ListTrips } from '#application/telemetry/use_cases/list_trips'
 import { GetTrip } from '#application/telemetry/use_cases/get_trip'
 import { ReadTripPoints } from '#application/telemetry/use_cases/read_trip_points'
 import { FollowVehicles } from '#application/telemetry/use_cases/follow_vehicles'
+import { LucidIncidentRepository } from '#infrastructure/persistence/repositories/incident_repository'
+import { ListIncidents } from '#application/incident/use_cases/list_incidents'
+import { OpenIncident } from '#application/incident/use_cases/open_incident'
+import { ChangeIncidentStatus } from '#application/incident/use_cases/change_incident_status'
+import { BuildTripReport } from '#application/telemetry/use_cases/build_trip_report'
 import {
   LucidOrganizationRepository,
   LucidRoleCatalog,
@@ -180,6 +185,35 @@ export default class ContainerProvider {
     this.app.container.singleton(
       FollowVehicles,
       async (r) => new FollowVehicles(await r.make(LucidTripReader))
+    )
+    this.app.container.singleton(
+      BuildTripReport,
+      async (r) => new BuildTripReport(await r.make(LucidTripReader))
+    )
+
+    // ------------------------------------------------------------- incidents
+    this.app.container.singleton(LucidIncidentRepository, () => new LucidIncidentRepository())
+    this.app.container.singleton(
+      ListIncidents,
+      async (r) => new ListIncidents(await r.make(LucidIncidentRepository))
+    )
+    this.app.container.singleton(
+      OpenIncident,
+      async (r) =>
+        new OpenIncident(
+          await r.make(LucidIncidentRepository),
+          new SystemClock(),
+          new LucidAuditLogger()
+        )
+    )
+    this.app.container.singleton(
+      ChangeIncidentStatus,
+      async (r) =>
+        new ChangeIncidentStatus(
+          await r.make(LucidIncidentRepository),
+          new SystemClock(),
+          new LucidAuditLogger()
+        )
     )
 
     // ------------------------------------------------------------- sécurité

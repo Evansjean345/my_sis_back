@@ -41,6 +41,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   REDIS_PORT: Env.schema.number(),
   REDIS_PASSWORD: Env.schema.string.optional(),
 
+  // ---------------------------------------------------------- socket.io (config/socket.ts)
+  SOCKET_IO_ENABLED: Env.schema.boolean.optional(),
+  SOCKET_IO_PATH: Env.schema.string.optional(),
+  SOCKET_IO_CORS_ORIGIN: Env.schema.string.optional(),
+  SOCKET_IO_SESSION_CHECK_SECONDS: Env.schema.number.optional(),
+
   // ---------------------------------------------------------- immobilisation
   // Paramètres de sécurité : typés strictement, jamais devinés.
   IMMOBILIZATION_ENABLED: Env.schema.boolean.optional(),

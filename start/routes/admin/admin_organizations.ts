@@ -2,6 +2,8 @@ import router from '@adonisjs/core/services/router'
 const OrganizationController = () =>
   import('#presentation/http/controllers/identity/organization_controller')
 const AuditLogController = () => import('#presentation/http/controllers/audit/audit_log_controller')
+const ClientSpaceController = () =>
+  import('#presentation/http/controllers/identity/client_space_controller')
 
 export const adminOrgRoutes = () => {
   router
@@ -18,6 +20,8 @@ export const adminOrgRoutes = () => {
       router.post('/:id/users', [OrganizationController, 'storeUser'])
       router.get('/:id/roles', [OrganizationController, 'roles'])
       router.get('/:id/audit-logs', [AuditLogController, 'byOrganization'])
+      // ---- espace client : résumé (les rubriques gardent leurs routes, filtrées par organizationId)
+      router.get('/:id/space', [ClientSpaceController, 'showAll'])
     })
     .prefix('/organizations')
     .where('id', router.matchers.uuid())

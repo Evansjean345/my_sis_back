@@ -54,3 +54,33 @@ export interface ActivityReport {
 export interface ActivityReader {
   daily(query: ActivityQuery): Promise<ActivityReport>
 }
+
+// ===========================================================================
+//  ESPACE CLIENT — résumé d'une organisation (tableau de bord du SuperAdmin)
+// ===========================================================================
+
+/** Compteurs d'une organisation, pour l'en-tête et les onglets de son espace. */
+export interface ClientSpaceCounts {
+  /** Souscriptions au statut `active`. */
+  activeSubscriptions: number
+  drivers: number
+  /** Calendriers d'utilisation actifs (appliqués par le moteur). */
+  activeSchedules: number
+  schedules: number
+  vehicles: number
+  zones: number
+  speedPolicies: number
+  rules: number
+  /** Incidents `open` ou `in_progress`. */
+  openIncidents: number
+}
+
+export interface ClientSpaceSummary {
+  organization: { id: string; name: string; code: string; isActive: boolean }
+  counts: ClientSpaceCounts
+}
+
+export interface ClientSpaceReader {
+  /** `null` : organisation inconnue ou supprimée. */
+  summary(organizationId: string): Promise<ClientSpaceSummary | null>
+}

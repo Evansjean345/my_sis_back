@@ -20,3 +20,6 @@ export const TRIP_POINTS_MAX_LIMIT = 2000
 
 /** Véhicules suivis en direct par une même connexion. */
 export const LIVE_MAX_FOLLOWED_VEHICLES = 200
+
+/** Période maximale d'un rapport de trajets (un trimestre). */
+export const TRIP_REPORT_MAX_RANGE_DAYS = 93

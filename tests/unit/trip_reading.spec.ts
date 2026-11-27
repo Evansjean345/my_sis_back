@@ -116,6 +116,9 @@ class FakeReader implements TripReader {
   async organizationExists() {
     return true
   }
+  async vehicleStats() {
+    return []
+  }
 }
 
 // =========================================================================

@@ -15,6 +15,8 @@ import { adminSmsRoutes } from '#start/routes/admin/admin_sms'
 import { adminOfferRoutes } from '#start/routes/admin/admin_offers'
 import { adminSubscriptionRoutes } from '#start/routes/admin/admin_subscriptions'
 import { adminRuleEngineRoutes } from '#start/routes/admin/admin_rule_engine'
+import { adminIncidentRoutes } from '#start/routes/admin/admin_incidents'
+import { adminReportRoutes } from '#start/routes/admin/admin_reports'
 
 export const adminRoutes = () => {
   router
@@ -33,6 +35,8 @@ export const adminRoutes = () => {
       adminOfferRoutes()
       adminSubscriptionRoutes()
       adminRuleEngineRoutes()
+      adminIncidentRoutes()
+      adminReportRoutes()
     })
     .prefix('/admin')
     .as('admin')

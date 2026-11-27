@@ -219,6 +219,7 @@ export type ScannedRoutes = {
     'admin.organization.store_user': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.organization.roles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.audit_log.by_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.client_space.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.stats_all': { paramsTuple?: []; params?: {} }
     'admin.user.index_all': { paramsTuple?: []; params?: {} }
     'admin.user.store_all': { paramsTuple?: []; params?: {} }
@@ -292,6 +293,11 @@ export type ScannedRoutes = {
     'admin.rule.store_all': { paramsTuple?: []; params?: {} }
     'admin.rule.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.rule.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.incident.index_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.store_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.incident.status_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.trip_report.trips_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -403,6 +409,7 @@ export type ScannedRoutes = {
     'admin.organization.users': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.organization.roles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.audit_log.by_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.client_space.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.stats_all': { paramsTuple?: []; params?: {} }
     'admin.user.index_all': { paramsTuple?: []; params?: {} }
     'admin.user.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -433,6 +440,9 @@ export type ScannedRoutes = {
     'admin.geofence.index_all': { paramsTuple?: []; params?: {} }
     'admin.speed_policy.index_all': { paramsTuple?: []; params?: {} }
     'admin.rule.index_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.index_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.trip_report.trips_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -540,6 +550,7 @@ export type ScannedRoutes = {
     'admin.organization.users': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.organization.roles': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.audit_log.by_organization': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.client_space.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.user.stats_all': { paramsTuple?: []; params?: {} }
     'admin.user.index_all': { paramsTuple?: []; params?: {} }
     'admin.user.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
@@ -570,6 +581,9 @@ export type ScannedRoutes = {
     'admin.geofence.index_all': { paramsTuple?: []; params?: {} }
     'admin.speed_policy.index_all': { paramsTuple?: []; params?: {} }
     'admin.rule.index_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.index_all': { paramsTuple?: []; params?: {} }
+    'admin.incident.show_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.trip_report.trips_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.health': { paramsTuple?: []; params?: {} }
     'flespi_channel.protocols': { paramsTuple?: []; params?: {} }
     'flespi_channel.device_types': { paramsTuple: [ParamValue]; params: {'protocol': ParamValue} }
@@ -677,6 +691,7 @@ export type ScannedRoutes = {
     'admin.speed_policy.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.rule.store_all': { paramsTuple?: []; params?: {} }
     'admin.rule.toggle_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.incident.store_all': { paramsTuple?: []; params?: {} }
     'flespi_channel.store': { paramsTuple?: []; params?: {} }
     'twilio_webhook.sms_status': { paramsTuple?: []; params?: {} }
   }
@@ -747,6 +762,7 @@ export type ScannedRoutes = {
     'admin.geofence.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.speed_policy.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'admin.rule.update_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'admin.incident.status_all': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
     'flespi_channel.update': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   PUT: {

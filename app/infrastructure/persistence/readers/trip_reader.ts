@@ -8,6 +8,10 @@ import type {
   TripReadScope,
   TripSummary,
 } from '#domain/telemetry/code_legacy/trip/trip_reading_types'
+import type {
+  TripReportQuery,
+  VehicleTripStats,
+} from '#domain/telemetry/code_legacy/trip/trip_report_types'
 import type { TripCloseReason, TripStatus } from '#domain/telemetry/value_objects'
 
 const COLONNES = `
@@ -168,6 +172,48 @@ export class LucidTripReader implements TripReader {
     if (scope.organizationId) q.where('organization_id', scope.organizationId)
     const lignes = await q
     return lignes.map((r) => String(r.id))
+  }
+
+  /**
+   * Un trajet compte sur la période s'il y COMMENCE. Durée d'un trajet encore
+   * ouvert : jusqu'à son dernier point. Les véhicules sans trajet ressortent
+   * avec des zéros : un véhicule immobile se voit dans le rapport.
+   */
+  async vehicleStats(q: TripReportQuery): Promise<VehicleTripStats[]> {
+    const r = await db.rawQuery(
+      `SELECT v.id, v.registration,
+              count(t.id)                                        AS trips,
+              COALESCE(sum(t.distance_m), 0)                     AS distance_m,
+              COALESCE(sum(COALESCE(t.duration_s,
+                EXTRACT(EPOCH FROM (COALESCE(t.last_point_at, t.started_at) - t.started_at)))), 0) AS driving_s,
+              COALESCE(sum(t.idle_duration_s), 0)                AS idle_s,
+              max(t.max_speed_kph)                               AS max_speed,
+              max(t.started_at)                                  AS last_trip
+         FROM vehicles v
+         LEFT JOIN trips t ON t.vehicle_id = v.id
+                          AND t.status <> 'orphan'
+                          AND t.started_at >= :from AND t.started_at <= :to
+        WHERE v.organization_id = :org AND v.deleted_at IS NULL
+        GROUP BY v.id, v.registration
+        ORDER BY distance_m DESC, trips DESC, v.registration`,
+      { org: q.organizationId, from: q.from.toISOString(), to: q.to.toISOString() }
+    )
+    return ((r.rows ?? []) as Record<string, unknown>[]).map((l) => {
+      const distanceKm = Math.round(num(l.distance_m) / 100) / 10
+      const drivingSeconds = Math.round(num(l.driving_s))
+      return {
+        vehicleId: String(l.id),
+        registration: String(l.registration),
+        trips: num(l.trips),
+        distanceKm,
+        drivingSeconds,
+        idleSeconds: Math.round(num(l.idle_s)),
+        maxSpeedKph: numOrNull(l.max_speed),
+        avgSpeedKph:
+          drivingSeconds > 0 ? Math.round((distanceKm / (drivingSeconds / 3600)) * 10) / 10 : null,
+        lastTripAt: isoOrNull(l.last_trip),
+      }
+    })
   }
 
   async organizationExists(organizationId: string): Promise<boolean> {

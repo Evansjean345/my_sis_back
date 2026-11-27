@@ -6,12 +6,17 @@ import {
   TRIP_LIST_MAX_RANGE_DAYS,
   TRIP_POINTS_DEFAULT_LIMIT,
   TRIP_POINTS_MAX_LIMIT,
+  TRIP_REPORT_MAX_RANGE_DAYS,
 } from '#domain/telemetry/code_legacy/trip/trip_reading_limits'
 import type {
   TripLiveSnapshot,
   TripPoint,
   TripReadScope,
 } from '#domain/telemetry/code_legacy/trip/trip_reading_types'
+import type {
+  TripReportTotals,
+  VehicleTripStats,
+} from '#domain/telemetry/code_legacy/trip/trip_report_types'
 import type { TelemetryReading } from '#domain/telemetry/entities/telemetry_reading'
 import type { Trip } from '#domain/telemetry/entities/trip'
 import { InvalidTripRangeError } from '#domain/telemetry/errors'
@@ -28,19 +33,23 @@ import { InvalidTripRangeError } from '#domain/telemetry/errors'
 
 const MS_PER_DAY = 86_400_000
 
-/** Période de recherche : début avant fin, au plus `TRIP_LIST_MAX_RANGE_DAYS` jours. */
-export function tripRange(from: Date, to: Date): Result<{ from: Date; to: Date }> {
+/** Période de recherche : début avant fin, au plus `maxDays` jours (31 par défaut). */
+export function tripRange(
+  from: Date,
+  to: Date,
+  maxDays: number = TRIP_LIST_MAX_RANGE_DAYS
+): Result<{ from: Date; to: Date }> {
   const lisible = !Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())
   if (
     !lisible ||
     from.getTime() > to.getTime() ||
-    to.getTime() - from.getTime() > TRIP_LIST_MAX_RANGE_DAYS * MS_PER_DAY
+    to.getTime() - from.getTime() > maxDays * MS_PER_DAY
   ) {
     return Err(
       new InvalidTripRangeError(
         lisible ? from.toISOString() : String(from),
         lisible ? to.toISOString() : String(to),
-        TRIP_LIST_MAX_RANGE_DAYS
+        maxDays
       )
     )
   }
@@ -50,6 +59,25 @@ export function tripRange(from: Date, to: Date): Result<{ from: Date; to: Date }
 function borne(value: number | undefined, defaut: number, max: number): number {
   if (value === undefined || !Number.isFinite(value)) return defaut
   return Math.min(Math.max(1, Math.trunc(value)), max)
+}
+
+/** Période d'un rapport de trajets : au plus un trimestre. */
+export function tripReportRange(from: Date, to: Date): Result<{ from: Date; to: Date }> {
+  return tripRange(from, to, TRIP_REPORT_MAX_RANGE_DAYS)
+}
+
+/** Totaux d'un rapport, à partir des lignes par véhicule. */
+export function tripReportTotals(vehicles: readonly VehicleTripStats[]): TripReportTotals {
+  const vitesses = vehicles.map((v) => v.maxSpeedKph).filter((v): v is number => v !== null)
+  return {
+    trips: vehicles.reduce((n, v) => n + v.trips, 0),
+    distanceKm: Math.round(vehicles.reduce((n, v) => n + v.distanceKm, 0) * 10) / 10,
+    drivingSeconds: vehicles.reduce((n, v) => n + v.drivingSeconds, 0),
+    idleSeconds: vehicles.reduce((n, v) => n + v.idleSeconds, 0),
+    maxSpeedKph: vitesses.length > 0 ? Math.max(...vitesses) : null,
+    activeVehicles: vehicles.filter((v) => v.trips > 0).length,
+    vehicles: vehicles.length,
+  }
 }
 
 /** Trajets par page : 25 par défaut, 100 au plus. */
